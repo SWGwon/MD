@@ -1,0 +1,15 @@
+# Data files
+*.root
+
+# Plots and images
+*.png
+*.pdf
+
+# Editor temporary files
+*.swp
+*~
+.DS_Store
+
+# Log files
+*.log
+*.out
