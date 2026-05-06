@@ -10,7 +10,7 @@
 #include <vector>
 #include <numeric>
 
-void calculate_charge(std::string fileName, int numChannels = -1) {
+void production(std::string fileName, int numChannels = -1) {
     // --- User Configuration ---
     double dynamicRange = 2.0;      // Volts
     int    numBits      = 14;       // ADC Resolution
