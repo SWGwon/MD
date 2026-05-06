@@ -1,8 +1,11 @@
+#include <ROOT/RDataFrame.hxx>
+#include <ROOT/RVec.hxx>
 #include <TFile.h>
 #include <TTree.h>
 #include <TH1D.h>
 #include <TCanvas.h>
 #include <TString.h>
+#include <TSystem.h>
 #include <TLeaf.h>
 #include <cmath>
 #include <iostream>
@@ -10,7 +13,24 @@
 #include <vector>
 #include <numeric>
 
+// 펄스 분석을 위한 구조체
+struct PulseAnalysis {
+    double charge_pC;
+    double amplitude_mV;
+    double peakTime_ns;
+    double riseTime_ns;
+    double fallTime_ns;
+    double fwhm_ns;
+    double baseline_ADC;
+    double baselineRMS_ADC;
+    int isSaturated;
+    std::vector<double> waveform; // For average waveform calculation
+};
+
 void production(std::string fileName, int numChannels = -1) {
+    // 멀티스레딩 활성화
+    ROOT::EnableImplicitMT();
+
     // --- User Configuration ---
     double dynamicRange = 2.0;      // Volts
     int    numBits      = 14;       // ADC Resolution
@@ -18,12 +38,10 @@ void production(std::string fileName, int numChannels = -1) {
     double samplingTime = 2.0e-9;   // Seconds (2 ns)
     UInt_t maxADC       = (1 << numBits) - 1;
 
-    // Open Input File
+    // Open Input File to detect structure
     TFile *fIn = TFile::Open(fileName.c_str());
     if (!fIn || fIn->IsZombie()) return;
     TTree *TIn = (TTree*)fIn->Get("T");
-
-    // Determine bins and channels dynamically from the ADC branch title
     TLeaf *lADC = TIn->GetLeaf("ADC");
     if (!lADC) {
         std::cerr << "Error: Branch 'ADC' not found in " << fileName << std::endl;
@@ -31,64 +49,19 @@ void production(std::string fileName, int numChannels = -1) {
         return;
     }
 
-    TString title = lADC->GetTitle(); // e.g., "ADC[8][100]"
-    int fileChannels = 1;
-    int bins = 1;
-
+    TString title = lADC->GetTitle(); 
+    int fileChannels = 1, bins = 1;
     if (title.Contains("[") && title.Contains("]")) {
         sscanf(title.Data(), "ADC[%d][%d]", &fileChannels, &bins);
     } else {
         fileChannels = 1; 
         bins = lADC->GetLen();
     }
-
-    if (numChannels <= 0 || numChannels > fileChannels) {
-        numChannels = fileChannels;
-    }
+    if (numChannels <= 0 || numChannels > fileChannels) numChannels = fileChannels;
+    fIn->Close(); // RDataFrame will reopen it
 
     std::cout << "File has " << fileChannels << " channels with " << bins << " bins each." << std::endl;
-    std::cout << "Processing " << numChannels << " channels..." << std::endl;
-
-    int totalBinsInFile = lADC->GetLen();
-    std::vector<UInt_t> adcData(totalBinsInFile);
-    TIn->SetBranchAddress("ADC", adcData.data());
-
-    UInt_t eventNumIn;
-    if (TIn->GetBranch("EventNumber")) {
-        TIn->SetBranchAddress("EventNumber", &eventNumIn);
-    } else {
-        eventNumIn = 0;
-    }
-
-    // Create Output File and Tree
-    TString input = fileName;
-    TString baseName = gSystem->BaseName(input); 
-    TString outFileName = "production_output_" + baseName;
-    TFile *fOut = new TFile(outFileName, "RECREATE");
-    TTree *TOut = new TTree("T_Charge", "Comprehensive Pulse Analysis");
-    
-    // Output Variables
-    std::vector<double> charge_pC(numChannels);
-    std::vector<double> amplitude_mV(numChannels);
-    std::vector<double> peakTime_ns(numChannels);
-    std::vector<double> riseTime_ns(numChannels);
-    std::vector<double> fallTime_ns(numChannels);
-    std::vector<double> fwhm_ns(numChannels);
-    std::vector<double> baseline_ADC(numChannels);
-    std::vector<double> baselineRMS_ADC(numChannels);
-    std::vector<int>    isSaturated(numChannels);
-    UInt_t eventNumOut;
-
-    TOut->Branch("eventNum",       &eventNumOut,          "eventNum/i");
-    TOut->Branch("charge_pC",      charge_pC.data(),      Form("charge_pC[%d]/D", numChannels));
-    TOut->Branch("amplitude_mV",   amplitude_mV.data(),   Form("amplitude_mV[%d]/D", numChannels));
-    TOut->Branch("peakTime_ns",    peakTime_ns.data(),    Form("peakTime_ns[%d]/D", numChannels));
-    TOut->Branch("riseTime_ns",    riseTime_ns.data(),    Form("riseTime_ns[%d]/D", numChannels));
-    TOut->Branch("fallTime_ns",    fallTime_ns.data(),    Form("fallTime_ns[%d]/D", numChannels));
-    TOut->Branch("fwhm_ns",        fwhm_ns.data(),        Form("fwhm_ns[%d]/D", numChannels));
-    TOut->Branch("baseline_ADC",   baseline_ADC.data(),   Form("baseline_ADC[%d]/D", numChannels));
-    TOut->Branch("baselineRMS_ADC",baselineRMS_ADC.data(), Form("baselineRMS_ADC[%d]/D", numChannels));
-    TOut->Branch("isSaturated",    isSaturated.data(),    Form("isSaturated[%d]/I", numChannels));
+    std::cout << "Processing " << numChannels << " channels using multi-threading..." << std::endl;
 
     // Conversion factors
     double adcToVolts = dynamicRange / (double)maxADC;
@@ -96,153 +69,188 @@ void production(std::string fileName, int numChannels = -1) {
     double adcToMillivolts = adcToVolts * 1000.0;
     double samplingTime_ns = samplingTime * 1e9;
 
-    // Average Waveform Histograms
-    std::vector<TH1D*> hAvgWave(numChannels);
-    std::vector<TH1D*> hCharge(numChannels);
-    for (int ch = 0; ch < numChannels; ++ch) {
-        hAvgWave[ch] = new TH1D(Form("hAvgWave_Ch%d", ch), 
-                               Form("Average Waveform Ch %d;Time [ns];Amplitude [ADC]", ch), 
-                               bins, 0, bins * samplingTime_ns);
-        hCharge[ch] = new TH1D(Form("hCharge_Ch%d", ch), 
-                               Form("Charge Spectrum Ch %d;Charge [pC];Counts", ch), 
-                               600, -1, 5);
-        hAvgWave[ch]->SetDirectory(0);
-        hCharge[ch]->SetDirectory(0);
-    }
+    // RDataFrame Setup
+    ROOT::RDataFrame df("T", fileName);
 
-    Long64_t nEntries = TIn->GetEntries();
-    std::vector<UInt_t> samples(bins);
-
-    std::cout << "Starting processing " << nEntries << " entries..." << std::endl;
-
-    for (Long64_t i = 0; i < nEntries; ++i) {
-        TIn->GetEntry(i);
-        eventNumOut = eventNumIn;
-
+    // 1. Define analysis logic
+    auto processEvent = [=](const ROOT::RVec<UInt_t>& adcData) {
+        std::vector<PulseAnalysis> results(numChannels);
         for (int ch = 0; ch < numChannels; ++ch) {
             int offset = ch * bins;
-            isSaturated[ch] = 0;
+            auto& res = results[ch];
+            res.isSaturated = 0;
+            res.waveform.resize(bins);
 
-            // 1. Baseline calculation (Median)
-            for (int s = 0; s < bins; ++s) {
-                samples[s] = adcData[offset + s];
-                if (samples[s] >= maxADC - 1) isSaturated[ch] = 1;
+            // Copy and sort for median baseline
+            std::vector<UInt_t> sortedSamples(bins);
+            for(int s=0; s<bins; ++s) {
+                sortedSamples[s] = adcData[offset + s];
+                if (sortedSamples[s] >= maxADC - 1) res.isSaturated = 1;
             }
-            std::vector<UInt_t> sortedSamples = samples;
-            std::nth_element(sortedSamples.begin(), sortedSamples.begin() + bins / 2, sortedSamples.end());
-            double baseline = (double)sortedSamples[bins / 2];
-            baseline_ADC[ch] = baseline;
+            std::vector<UInt_t> copyForMedian = sortedSamples;
+            std::nth_element(copyForMedian.begin(), copyForMedian.begin() + bins / 2, copyForMedian.end());
+            double baseline = (double)copyForMedian[bins / 2];
+            res.baseline_ADC = baseline;
 
             // RMS calculation
             double sumSq = 0;
             for (int s = 0; s < bins; ++s) {
-                sumSq += std::pow((double)samples[s] - baseline, 2);
+                sumSq += std::pow((double)sortedSamples[s] - baseline, 2);
             }
-            baselineRMS_ADC[ch] = std::sqrt(sumSq / bins);
+            res.baselineRMS_ADC = std::sqrt(sumSq / bins);
 
-            // 2. Find Peak Position & Amplitude
+            // Peak Position & Amplitude
             double maxAmpADC = -1.0e9;
             int peakIdx = -1;
             for (int s = 0; s < bins; ++s) {
-                double pulseVal = baseline - (double)samples[s];
+                double pulseVal = baseline - (double)sortedSamples[s];
+                res.waveform[s] = pulseVal;
                 if (pulseVal > maxAmpADC) {
                     maxAmpADC = pulseVal;
                     peakIdx = s;
                 }
-                hAvgWave[ch]->Fill(s * samplingTime_ns, pulseVal); // Accumulate for average
             }
+            res.amplitude_mV = maxAmpADC * adcToMillivolts;
+            res.peakTime_ns  = peakIdx * samplingTime_ns;
 
-            amplitude_mV[ch] = maxAmpADC * adcToMillivolts;
-            peakTime_ns[ch]  = peakIdx * samplingTime_ns;
-
-            // 3. Pulse Shape Analysis (Rise/Fall Time, FWHM)
+            // Pulse Shape Analysis
             double t10 = -1, t90 = -1, t50_1 = -1, t50_2 = -1, t90_fall = -1, t10_fall = -1;
             for (int s = 0; s < bins; ++s) {
-                double val = baseline - (double)samples[s];
+                double val = res.waveform[s];
                 double time = s * samplingTime_ns;
-                
                 if (t10 < 0 && val >= 0.1 * maxAmpADC) t10 = time;
                 if (t50_1 < 0 && val >= 0.5 * maxAmpADC) t50_1 = time;
                 if (t90 < 0 && val >= 0.9 * maxAmpADC) t90 = time;
-                
                 if (s > peakIdx) {
                     if (t90_fall < 0 && val <= 0.9 * maxAmpADC) t90_fall = time;
                     if (t50_2 < 0 && val <= 0.5 * maxAmpADC) t50_2 = time;
                     if (t10_fall < 0 && val <= 0.1 * maxAmpADC) t10_fall = time;
                 }
             }
-            riseTime_ns[ch] = (t90 > 0 && t10 > 0) ? (t90 - t10) : 0;
-            fallTime_ns[ch] = (t10_fall > 0 && t90_fall > 0) ? (t10_fall - t90_fall) : 0;
-            fwhm_ns[ch]     = (t50_2 > 0 && t50_1 > 0) ? (t50_2 - t50_1) : 0;
+            res.riseTime_ns = (t90 > 0 && t10 > 0) ? (t90 - t10) : 0;
+            res.fallTime_ns = (t10_fall > 0 && t90_fall > 0) ? (t10_fall - t90_fall) : 0;
+            res.fwhm_ns     = (t50_2 > 0 && t50_1 > 0) ? (t50_2 - t50_1) : 0;
 
-            // 4. Integrate Charge
+            // Integrate Charge
             double totalCharge = 0;
             for (int s = 0; s < bins; ++s) {
-                double temp_amp = baseline - (double)samples[s];
-                //if (temp_amp > 0)
-                    totalCharge += temp_amp * unitChargeFactor;
+                totalCharge += res.waveform[s] * unitChargeFactor;
             }
-
-            charge_pC[ch] = totalCharge;
-            hCharge[ch]->Fill(totalCharge);
+            res.charge_pC = totalCharge;
         }
-        TOut->Fill();
+        return results;
+    };
 
-        if (i > 0 && i % 100000 == 0) std::cout << "Processing event " << i << " / " << nEntries << "..." << std::endl;
+    // 2. Apply analysis and extract branches
+    auto df_analyzed = df.Define("results", processEvent, {"ADC"});
+
+    // Define individual result columns
+    auto df_final = df_analyzed;
+    std::vector<std::string> colNames = {
+        "charge_pC", "amplitude_mV", "peakTime_ns", "riseTime_ns", 
+        "fallTime_ns", "fwhm_ns", "baseline_ADC", "baselineRMS_ADC", "isSaturated"
+    };
+
+    // Lambda helpers to extract vector elements from vector of PulseAnalysis
+    #define EXTRACT_COL(NAME, TYPE) \
+        df_final = df_final.Define(#NAME, [](const std::vector<PulseAnalysis>& res) { \
+            std::vector<TYPE> v; v.reserve(res.size()); \
+            for(auto& r : res) v.push_back(r.NAME); \
+            return v; \
+        }, {"results"});
+
+    EXTRACT_COL(charge_pC, double)
+    EXTRACT_COL(amplitude_mV, double)
+    EXTRACT_COL(peakTime_ns, double)
+    EXTRACT_COL(riseTime_ns, double)
+    EXTRACT_COL(fallTime_ns, double)
+    EXTRACT_COL(fwhm_ns, double)
+    EXTRACT_COL(baseline_ADC, double)
+    EXTRACT_COL(baselineRMS_ADC, double)
+    EXTRACT_COL(isSaturated, int)
+
+    // Add eventNum if exists
+    if (df.GetColumnNames().end() != std::find(df.GetColumnNames().begin(), df.GetColumnNames().end(), "EventNumber")) {
+        df_final = df_final.Define("eventNum", "EventNumber");
+    } else {
+        df_final = df_final.Define("eventNum", [](){ static std::atomic<UInt_t> i(0); return i++; });
     }
 
-    // Scale Average Waveforms
+    // 3. Book histograms and calculate average waveforms
+    // Charge histograms
+    std::vector<ROOT::RDF::RResultPtr<TH1D>> hChargePtrs;
     for (int ch = 0; ch < numChannels; ++ch) {
-        hAvgWave[ch]->Scale(1.0 / nEntries);
+        hChargePtrs.push_back(df_final.Define(Form("charge_ch%d", ch), [ch](const std::vector<double>& v){ return v[ch]; }, {"charge_pC"})
+                                      .Histo1D({Form("hCharge_Ch%d", ch), Form("Charge Spectrum Ch %d;Charge [pC];Counts", ch), 600, -1, 5}, Form("charge_ch%d", ch)));
     }
 
-    // --- Visualization ---
+    // Average waveforms: Aggregate RVecs element-wise
+    using RVecD = ROOT::VecOps::RVec<double>;
+    auto df_wave = df_final.Define("waveforms", [](const std::vector<PulseAnalysis>& res) {
+        std::vector<RVecD> waves;
+        for(auto& r : res) waves.push_back(RVecD(r.waveform));
+        return waves;
+    }, {"results"});
+
+    auto avgWavePtr = df_wave.Aggregate(
+        [numChannels, bins](std::vector<RVecD>& acc, const std::vector<RVecD>& waves){
+            for(int i=0; i<numChannels; ++i) acc[i] += waves[i];
+            return acc;
+        },
+        [numChannels](std::vector<RVecD>& acc1, const std::vector<RVecD>& acc2){
+            for(int i=0; i<numChannels; ++i) acc1[i] += acc2[i];
+            return acc1;
+        },
+        "waveforms",
+        std::vector<RVecD>(numChannels, RVecD(bins, 0.0))
+    );
+
+    auto count = df_final.Count();
+
+    // 4. Execution & Output
+    TString input = fileName;
+    TString baseName = gSystem->BaseName(input); 
+    TString outFileName = "production_output_" + baseName;
+    
+    std::cout << "Running analysis loop..." << std::endl;
+    df_final.Snapshot("T_Charge", outFileName, {"eventNum", "charge_pC", "amplitude_mV", "peakTime_ns", "riseTime_ns", "fallTime_ns", "fwhm_ns", "baseline_ADC", "baselineRMS_ADC", "isSaturated"});
+
+    // After Snapshot, results are ready
+    long long nEntries = *count;
+    std::cout << "Analysis Complete! Processed " << nEntries << " entries." << std::endl;
+
+    // --- Visualization & Scaling ---
+    TFile *fOut = TFile::Open(outFileName, "UPDATE");
     TCanvas *c1 = new TCanvas("c1", "Charge Spectra", 1200, 800);
-    if (numChannels <= 1) c1->Divide(1, 1);
-    else if (numChannels <= 2) c1->Divide(2, 1);
-    else if (numChannels <= 4) c1->Divide(2, 2);
-    else if (numChannels <= 6) c1->Divide(3, 2);
-    else c1->Divide(4, 2);
+    int cols = (numChannels <= 1) ? 1 : (numChannels <= 2) ? 2 : (numChannels <= 4) ? 2 : (numChannels <= 6) ? 3 : 4;
+    int rows = (numChannels <= 1) ? 1 : (numChannels <= 4) ? 2 : 2;
+    c1->Divide(cols, rows);
 
     for (int ch = 0; ch < numChannels; ++ch) {
         c1->cd(ch + 1);
         gPad->SetLogy();
-        hCharge[ch]->SetLineColor(kBlue + (ch % 4));
-        hCharge[ch]->Draw();
+        hChargePtrs[ch]->SetLineColor(kBlue + (ch % 4));
+        hChargePtrs[ch]->Draw();
+        hChargePtrs[ch]->Write();
     }
-
-    TString plotName = TString(baseName);
-    plotName.ReplaceAll(".root", Form("_ch%d_charge.png", numChannels));
+    TString plotName = TString(baseName).ReplaceAll(".root", Form("_ch%d_charge.png", numChannels));
     c1->SaveAs(plotName);
 
     TCanvas *c2 = new TCanvas("c2", "Average Waveforms", 1200, 800);
-    if (numChannels <= 1) c2->Divide(1, 1);
-    else if (numChannels <= 2) c2->Divide(2, 1);
-    else if (numChannels <= 4) c2->Divide(2, 2);
-    else if (numChannels <= 6) c2->Divide(3, 2);
-    else c2->Divide(4, 2);
-
+    c2->Divide(cols, rows);
+    auto allAvgWaves = *avgWavePtr;
     for (int ch = 0; ch < numChannels; ++ch) {
         c2->cd(ch + 1);
-        hAvgWave[ch]->SetLineColor(kRed + (ch % 4));
-        hAvgWave[ch]->Draw("HIST");
+        auto& avgWaveVec = allAvgWaves[ch];
+        TH1D *hAvg = new TH1D(Form("hAvgWave_Ch%d", ch), Form("Average Waveform Ch %d;Time [ns];Amplitude [ADC]", ch), bins, 0, bins * samplingTime_ns);
+        for(int s=0; s<bins; ++s) hAvg->SetBinContent(s+1, avgWaveVec[s] / nEntries);
+        hAvg->SetLineColor(kRed + (ch % 4));
+        hAvg->Draw("HIST");
+        hAvg->Write();
     }
-    TString avgPlotName = TString(baseName);
-    avgPlotName.ReplaceAll(".root", Form("_ch%d_avg_wave.png", numChannels));
+    TString avgPlotName = TString(baseName).ReplaceAll(".root", Form("_ch%d_avg_wave.png", numChannels));
     c2->SaveAs(avgPlotName);
-    
-    // Save data and close
-    fOut->cd();
-    TOut->Write();
-    for (int ch = 0; ch < numChannels; ++ch) {
-        hCharge[ch]->Write();
-        hAvgWave[ch]->Write();
-    }
-    fOut->Close();
-    fIn->Close();
 
-    std::cout << "Analysis Complete!" << std::endl;
-    std::cout << "1. Data saved to: " << outFileName << std::endl;
-    std::cout << "2. Charge plots saved to: " << plotName << std::endl;
-    std::cout << "3. Avg waveform plots saved to: " << avgPlotName << std::endl;
+    //fOut->Close();
+    std::cout << "Data saved to: " << outFileName << std::endl;
 }
