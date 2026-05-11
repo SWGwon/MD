@@ -1,10 +1,28 @@
 # Data files
-data
+data/
 *.root
 
 # Plots and images
 *.png
 *.pdf
+
+# Analysis outputs
+results/
+plots/
+output/
+
+# ROOT build artifacts
+*_C.d
+*_C.so
+*_C_ACLiC_dict_rdict.pcm
+*.pcm
+*.d
+*.so
+
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
 
 # Editor temporary files
 *.swp
