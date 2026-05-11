@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 START_DIR="$(pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 usage() {
     cat <<'EOF'
@@ -88,7 +89,7 @@ source_file=""
 bg_file=""
 data_dir="$START_DIR"
 out_prefix=""
-output_dir="$START_DIR"
+output_dir="$REPO_DIR/results"
 macro_file="$SCRIPT_DIR/plot_npe_subtracted.C"
 gain="1.0e7"
 x_quantile="1.0"

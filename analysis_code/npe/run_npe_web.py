@@ -8,9 +8,10 @@ import sys
 
 
 APP_DIR = Path(__file__).resolve().parent
+REPO_DIR = APP_DIR.parents[1]
 WRAPPER = APP_DIR / "run_npe_analysis.sh"
 DEFAULT_DATA_DIR = Path.cwd()
-DEFAULT_OUT_DIR = Path.cwd()
+DEFAULT_OUT_DIR = REPO_DIR / "results"
 
 
 def root_files(data_dir):

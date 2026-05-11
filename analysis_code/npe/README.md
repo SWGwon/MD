@@ -47,6 +47,31 @@ Useful options:
 -q QUANTILE     X-axis quantile, 1.0 means full range
 ```
 
+## Charge and NPE Conversion
+
+For `phys_tree` files produced by `/home/sgwon/CPNR_dt5730s/src/production_dt5730.cpp`, `Charge_CH*` is not pC. It is a baseline-subtracted ADC integral:
+
+```text
+Charge_CH = sum(baseline - ADC) over the pulse window
+unit      = ADC count * sample
+```
+
+The macro converts this to charge and NPE using the DT5730 assumptions:
+
+```text
+Q[pC] = Charge_CH * (2.0 V / (2^14 - 1)) * (2 ns) / (50 ohm) * 1e12
+NPE   = Q[pC] / (gain * 1.60217663e-7 pC)
+```
+
+With the default `gain = 1e7`, this is:
+
+```text
+Q[pC] = Charge_CH * 0.00488311
+NPE   = Charge_CH * 0.00304780
+```
+
+If the digitizer range, sampling period, impedance, or ADC bit depth changes, update the optional constants in `plot_npe_subtracted.C`.
+
 Example zoomed plot:
 
 ```bash
@@ -56,7 +81,7 @@ analysis_code/npe/run_npe_analysis.sh \
   -b background_1hr_prod.root \
   -O /path/to/results \
   -o nocollimator_zoom \
-  -x 0 -X 200000
+  -x 0 -X 6000
 ```
 
 ## Main Outputs

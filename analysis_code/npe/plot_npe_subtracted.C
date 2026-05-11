@@ -51,6 +51,11 @@ TH1D *make_rate_hist(const TH1D *hist, double liveSeconds, const char *name) {
     return rateHist;
 }
 
+double adc_integral_to_pC(double dynamicRangeV, double samplingTimeNs, double resistanceOhm, int adcBits) {
+    const double maxADC = std::pow(2.0, adcBits) - 1.0;
+    return (dynamicRangeV / maxADC) * (samplingTimeNs * 1.0e-9) / resistanceOhm * 1.0e12;
+}
+
 /**
  * @brief 소스 데이터에서 백그라운드를 차감한 NPE 분포를 그리는 매크로
  * 
@@ -64,6 +69,10 @@ TH1D *make_rate_hist(const TH1D *hist, double liveSeconds, const char *name) {
  * @param xMaxUser    x축 상한. xMinUser보다 클 때만 수동 범위 적용
  * @param tttClockHz  SyncTime_TTT clock. DT5730 TTT는 보통 125 MHz
  * @param outPrefix   출력 PNG 파일 prefix
+ * @param dynamicRangeV DT5730 ADC full scale voltage range
+ * @param samplingTimeNs Sampling period in ns
+ * @param resistanceOhm Digitizer input impedance
+ * @param adcBits      ADC bit depth
  */
 void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root", 
                          const char* bgFile = "background_1hr_prod.root", 
@@ -74,7 +83,11 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
                          double xMinUser = 0.0,
                          double xMaxUser = -1.0,
                          double tttClockHz = 125.0e6,
-                         const char* outPrefix = "npe") {
+                         const char* outPrefix = "npe",
+                         double dynamicRangeV = 2.0,
+                         double samplingTimeNs = 2.0,
+                         double resistanceOhm = 50.0,
+                         int adcBits = 14) {
     
     gStyle->SetOptStat(0); // 차감 후에는 통계 박스가 부정확할 수 있어 끔
     TString prefix(outPrefix);
@@ -97,7 +110,9 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
     }
 
     const double e_charge_pC = 1.60217663e-7;
-    TString npe_conv = Form("/ %e", gain * e_charge_pC);
+    const double adcIntegralToPC = adc_integral_to_pC(dynamicRangeV, samplingTimeNs, resistanceOhm, adcBits);
+    const double adcIntegralToNPE = adcIntegralToPC / (gain * e_charge_pC);
+    TString npe_conv = Form("* %e", adcIntegralToNPE);
     const int nChannels = 8;
     const double srcLiveSeconds = get_live_seconds(tSrc, tttClockHz);
     const double bgLiveSeconds = get_live_seconds(tBG, tttClockHz);
@@ -138,12 +153,12 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
     for (size_t idx = 0; idx < activeChannels.size(); ++idx) {
         int i = activeChannels[idx];
         TString branch = Form("Charge_CH%d", i);
-        TString npeExpr = branch + npe_conv;
+        TString npeExpr = Form("(%s) %s", branch.Data(), npe_conv.Data());
         
-        const double srcMin = tSrc->GetMinimum(branch) / (gain * e_charge_pC);
-        const double srcMax = tSrc->GetMaximum(branch) / (gain * e_charge_pC);
-        const double bgMin = tBG->GetMinimum(branch) / (gain * e_charge_pC);
-        const double bgMax = tBG->GetMaximum(branch) / (gain * e_charge_pC);
+        const double srcMin = tSrc->GetMinimum(branch) * adcIntegralToNPE;
+        const double srcMax = tSrc->GetMaximum(branch) * adcIntegralToNPE;
+        const double bgMin = tBG->GetMinimum(branch) * adcIntegralToNPE;
+        const double bgMax = tBG->GetMaximum(branch) * adcIntegralToNPE;
         double xmin = std::min(srcMin, bgMin);
         double xmax = std::max(srcMax, bgMax);
         if (xmin == xmax) xmax = xmin + 1.0;
@@ -203,7 +218,7 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
         total_expr_raw += branch;
     }
     total_expr_raw += ")";
-    TString total_npe_expr = total_expr_raw + npe_conv;
+    TString total_npe_expr = Form("%s %s", total_expr_raw.Data(), npe_conv.Data());
 
     c_overlay_ch->SaveAs(Form("%s_overlay_channels_log.png", prefix.Data()));
     c_sub->SaveAs(Form("%s_subtracted_channels.png", prefix.Data()));
@@ -222,14 +237,14 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
         rawBgMin += tBG->GetMinimum(branch);
         rawBgMax += tBG->GetMaximum(branch);
     }
-    double t_xmin = std::min(rawSrcMin, rawBgMin) / (gain * e_charge_pC);
-    double t_xmax = std::max(rawSrcMax, rawBgMax) / (gain * e_charge_pC);
+    double t_xmin = std::min(rawSrcMin, rawBgMin) * adcIntegralToNPE;
+    double t_xmax = std::max(rawSrcMax, rawBgMax) * adcIntegralToNPE;
     if (t_xmin == t_xmax) t_xmax = t_xmin + 1.0;
     if (xQuantile > 0 && xQuantile < 1) {
         const double srcQ = get_tree_quantile(tSrc, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_src");
         const double bgQ = get_tree_quantile(tBG, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_bg");
         t_xmax = std::max(srcQ, bgQ);
-        if (t_xmax <= t_xmin) t_xmax = std::max(rawSrcMax, rawBgMax) / (gain * e_charge_pC);
+        if (t_xmax <= t_xmin) t_xmax = std::max(rawSrcMax, rawBgMax) * adcIntegralToNPE;
     }
     if (xMaxUser > xMinUser) {
         t_xmin = xMinUser;
@@ -316,7 +331,12 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
     std::cout << "\n--- Background Subtraction Complete ---" << std::endl;
     std::cout << "Source: " << sourceFile << std::endl;
     std::cout << "BG: " << bgFile << std::endl;
-    std::cout << "Conversion: NPE = Raw_Charge " << npe_conv << std::endl;
+    std::cout << "Charge_CH unit: ADC-count sample integral from DAQ production_dt5730.cpp" << std::endl;
+    std::cout << "ADC integral to pC: " << adcIntegralToPC << " pC / (ADC count * sample)" << std::endl;
+    std::cout << "Conversion: NPE = Charge_CH " << npe_conv << std::endl;
+    std::cout << "Conversion constants: dynamicRange=" << dynamicRangeV << " V, sampling="
+              << samplingTimeNs << " ns, R=" << resistanceOhm << " ohm, ADC bits=" << adcBits
+              << ", gain=" << gain << std::endl;
     std::cout << "Entries: source=" << tSrc->GetEntries() << ", BG=" << tBG->GetEntries() << std::endl;
     std::cout << "Live time [s]: source=" << srcLiveSeconds << ", BG=" << bgLiveSeconds << std::endl;
     std::cout << "Trigger rate [Hz]: source=" << srcRate << ", BG=" << bgRate

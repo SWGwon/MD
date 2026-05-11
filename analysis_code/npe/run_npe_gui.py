@@ -7,6 +7,8 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_DIR = Path(__file__).resolve().parent
+REPO_DIR = APP_DIR.parents[1]
+DEFAULT_OUT_DIR = REPO_DIR / "results"
 WRAPPER = APP_DIR / "run_npe_analysis.sh"
 
 
@@ -20,7 +22,7 @@ class NpeAnalysisGui(tk.Tk):
 
         self.source_var = tk.StringVar()
         self.bg_var = tk.StringVar()
-        self.out_dir_var = tk.StringVar(value=str(Path.cwd()))
+        self.out_dir_var = tk.StringVar(value=str(DEFAULT_OUT_DIR))
         self.prefix_var = tk.StringVar(value="nocollimator")
         self.gain_var = tk.StringVar(value="1.0e7")
         self.quantile_var = tk.StringVar(value="1.0")
