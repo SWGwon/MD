@@ -9,6 +9,7 @@ from tkinter import filedialog, messagebox, ttk
 
 APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parents[1]
+DEFAULT_DATA_DIR = REPO_DIR / "data"
 DEFAULT_OUT_DIR = REPO_DIR / "results"
 WRAPPER = APP_DIR / "run_npe_analysis.sh"
 
@@ -110,7 +111,11 @@ class NpeAnalysisGui(tk.Tk):
         ttk.Entry(parent, textvariable=variable, width=14).grid(row=row, column=col + 1, sticky="ew", padx=(0, 12), pady=4)
 
     def pick_source(self):
-        path = filedialog.askopenfilename(title="Select source ROOT file", filetypes=[("ROOT files", "*.root"), ("All files", "*")])
+        path = filedialog.askopenfilename(
+            title="Select source ROOT file",
+            initialdir=self.default_file_dialog_dir(),
+            filetypes=[("ROOT files", "*.root"), ("All files", "*")],
+        )
         if path:
             self.source_var.set(path)
             if self.prefix_var.get() in {"", "npe"}:
@@ -119,7 +124,11 @@ class NpeAnalysisGui(tk.Tk):
                 self.source_label_var.set(Path(path).stem)
 
     def pick_background(self):
-        path = filedialog.askopenfilename(title="Select background ROOT file", filetypes=[("ROOT files", "*.root"), ("All files", "*")])
+        path = filedialog.askopenfilename(
+            title="Select background ROOT file",
+            initialdir=self.default_file_dialog_dir(),
+            filetypes=[("ROOT files", "*.root"), ("All files", "*")],
+        )
         if path:
             self.bg_var.set(path)
 
@@ -127,6 +136,11 @@ class NpeAnalysisGui(tk.Tk):
         path = filedialog.askdirectory(title="Select output directory")
         if path:
             self.out_dir_var.set(path)
+
+    def default_file_dialog_dir(self):
+        if DEFAULT_DATA_DIR.is_dir():
+            return str(DEFAULT_DATA_DIR)
+        return str(REPO_DIR)
 
     def validate_inputs(self):
         if not WRAPPER.exists():

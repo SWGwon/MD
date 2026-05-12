@@ -10,7 +10,7 @@ import sys
 APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parents[1]
 WRAPPER = APP_DIR / "run_npe_analysis.sh"
-DEFAULT_DATA_DIR = Path.cwd()
+DEFAULT_DATA_DIR = REPO_DIR / "data"
 DEFAULT_OUT_DIR = REPO_DIR / "results"
 IMAGE_REGISTRY = {}
 
