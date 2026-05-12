@@ -141,8 +141,41 @@ class NpeAnalysisGui(tk.Tk):
         if not self.prefix_var.get().strip():
             messagebox.showerror("Missing prefix", "Enter an output prefix.")
             return False
+        try:
+            self.validated_options()
+        except ValueError as exc:
+            messagebox.showerror("Invalid option", str(exc))
+            return False
         Path(self.out_dir_var.get()).mkdir(parents=True, exist_ok=True)
         return True
+
+    def validated_options(self):
+        gain = parse_float(self.gain_var.get(), "Gain")
+        quantile = parse_float(self.quantile_var.get(), "X Quantile")
+        bins = parse_int(self.bins_var.get(), "Bins")
+        xmin = parse_float(self.xmin_var.get(), "Range X Min")
+        xmax = parse_float(self.xmax_var.get(), "Range X Max")
+        clock = parse_float(self.clock_var.get(), "TTT Clock Hz")
+
+        if gain <= 0:
+            raise ValueError("Gain must be greater than 0.")
+        if not (0 < quantile <= 1):
+            raise ValueError("X Quantile must be greater than 0 and less than or equal to 1.")
+        if bins <= 0:
+            raise ValueError("Bins must be a positive integer.")
+        if xmax != -1 and xmax <= xmin:
+            raise ValueError("Range X Max must be -1 for full range or greater than Range X Min.")
+        if clock <= 0:
+            raise ValueError("TTT Clock Hz must be greater than 0.")
+
+        return {
+            "gain": format_number(gain),
+            "quantile": format_number(quantile),
+            "bins": str(bins),
+            "xmin": format_number(xmin),
+            "xmax": format_number(xmax),
+            "clock": format_number(clock),
+        }
 
     def run_analysis(self):
         if self.process is not None:
@@ -151,6 +184,7 @@ class NpeAnalysisGui(tk.Tk):
             return
 
         base_prefix = self.prefix_var.get().strip()
+        options = self.validated_options()
         range_prefix = self.range_prefix(base_prefix)
         full_prefix = f"{base_prefix}_full"
 
@@ -161,12 +195,12 @@ class NpeAnalysisGui(tk.Tk):
             "-O", self.out_dir_var.get(),
             "-o", full_prefix,
             "-L", self.source_label_var.get().strip(),
-            "-g", self.gain_var.get().strip(),
-            "-q", self.quantile_var.get().strip(),
+            "-g", options["gain"],
+            "-q", options["quantile"],
             "-n", "400",
             "-x", "0",
             "-X", "-1",
-            "-c", self.clock_var.get().strip(),
+            "-c", options["clock"],
         ]
 
         range_cmd = [
@@ -176,12 +210,12 @@ class NpeAnalysisGui(tk.Tk):
             "-O", self.out_dir_var.get(),
             "-o", range_prefix,
             "-L", self.source_label_var.get().strip(),
-            "-g", self.gain_var.get().strip(),
+            "-g", options["gain"],
             "-q", "1.0",
-            "-n", self.bins_var.get().strip(),
-            "-x", self.xmin_var.get().strip(),
-            "-X", self.xmax_var.get().strip(),
-            "-c", self.clock_var.get().strip(),
+            "-n", options["bins"],
+            "-x", options["xmin"],
+            "-X", options["xmax"],
+            "-c", options["clock"],
         ]
 
         commands = [("full range", full_cmd), ("selected range", range_cmd)]
@@ -298,6 +332,28 @@ class NpeAnalysisGui(tk.Tk):
 
     def clear_log(self):
         self.log.delete("1.0", tk.END)
+
+
+def parse_float(value, label):
+    try:
+        return float(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a number.") from exc
+
+
+def parse_int(value, label):
+    try:
+        text = str(value).strip()
+        number = int(text)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an integer.") from exc
+    if str(number) != text:
+        raise ValueError(f"{label} must be an integer.")
+    return number
+
+
+def format_number(value):
+    return f"{value:.12g}"
 
 
 if __name__ == "__main__":

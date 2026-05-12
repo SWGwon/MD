@@ -59,12 +59,14 @@ def page(data=None, log="", images=None):
     .plots {{ display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 20px; }}
     .plot img {{ width: min(100%, 1000px); border: 1px solid #bbb; }}
     .plot .caption {{ font-weight: 600; margin-bottom: 6px; }}
+    .error {{ background: #ffe8e8; border: 1px solid #cc5555; padding: 12px; margin: 16px 0; }}
     pre {{ background: #111; color: #eee; padding: 14px; overflow: auto; min-height: 180px; }}
     .hint {{ color: #555; font-size: 0.92em; }}
   </style>
 </head>
 <body>
   <h1>NPE Analysis</h1>
+  {error_section(log)}
   <form method="post" action="/run">
     <label>Data directory</label>
     <input name="data_dir" value="{escape(data_dir, quote=True)}">
@@ -144,6 +146,12 @@ def plot_section(images):
     return "<h2>Result Preview</h2><div class=\"plots\">" + "\n".join(cards) + "</div>"
 
 
+def error_section(log):
+    if not log.startswith("Input error:"):
+        return ""
+    return f'<div class="error">{escape(log)}</div>'
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -172,9 +180,12 @@ class Handler(BaseHTTPRequestHandler):
         out_dir.mkdir(parents=True, exist_ok=True)
         base_prefix = data.get("prefix", "npe")
         source_label = data.get("source_label", "")
-        xmin = data.get("xmin", "0")
-        xmax = data.get("xmax", "-1")
-        range_prefix = f"{base_prefix}_range_{sanitize_token(xmin)}_{sanitize_token(xmax)}"
+        try:
+            options = validated_options(data)
+        except ValueError as exc:
+            return f"Input error: {exc}", []
+
+        range_prefix = f"{base_prefix}_range_{sanitize_token(options['xmin'])}_{sanitize_token(options['xmax'])}"
         full_prefix = f"{base_prefix}_full"
 
         full_cmd = [
@@ -185,12 +196,12 @@ class Handler(BaseHTTPRequestHandler):
             "-O", str(out_dir),
             "-o", full_prefix,
             "-L", source_label,
-            "-g", data.get("gain", "1.0e7"),
-            "-q", data.get("quantile", "1.0"),
+            "-g", options["gain"],
+            "-q", options["quantile"],
             "-n", "400",
             "-x", "0",
             "-X", "-1",
-            "-c", data.get("clock", "125.0e6"),
+            "-c", options["clock"],
         ]
         range_cmd = [
             str(WRAPPER),
@@ -200,12 +211,12 @@ class Handler(BaseHTTPRequestHandler):
             "-O", str(out_dir),
             "-o", range_prefix,
             "-L", source_label,
-            "-g", data.get("gain", "1.0e7"),
+            "-g", options["gain"],
             "-q", "1.0",
-            "-n", data.get("bins", "400"),
-            "-x", xmin,
-            "-X", xmax,
-            "-c", data.get("clock", "125.0e6"),
+            "-n", options["bins"],
+            "-x", options["xmin"],
+            "-X", options["xmax"],
+            "-c", options["clock"],
         ]
         image_paths = [
             ("Full range", out_dir / f"{full_prefix}_subtracted_total.png"),
@@ -258,6 +269,57 @@ class Handler(BaseHTTPRequestHandler):
 
 def sanitize_token(value):
     return str(value).strip().replace(".", "p").replace("-", "m").replace("/", "_")
+
+
+def validated_options(data):
+    gain = parse_float(data.get("gain", "1.0e7"), "Gain")
+    quantile = parse_float(data.get("quantile", "1.0"), "X quantile")
+    bins = parse_int(data.get("bins", "400"), "Bins")
+    xmin = parse_float(data.get("xmin", "0"), "X min")
+    xmax = parse_float(data.get("xmax", "-1"), "X max")
+    clock = parse_float(data.get("clock", "125.0e6"), "TTT clock Hz")
+
+    if gain <= 0:
+        raise ValueError("Gain must be greater than 0.")
+    if not (0 < quantile <= 1):
+        raise ValueError("X quantile must be greater than 0 and less than or equal to 1.")
+    if bins <= 0:
+        raise ValueError("Bins must be a positive integer.")
+    if xmax != -1 and xmax <= xmin:
+        raise ValueError("X max must be -1 for full range or greater than X min.")
+    if clock <= 0:
+        raise ValueError("TTT clock Hz must be greater than 0.")
+
+    return {
+        "gain": format_number(gain),
+        "quantile": format_number(quantile),
+        "bins": str(bins),
+        "xmin": format_number(xmin),
+        "xmax": format_number(xmax),
+        "clock": format_number(clock),
+    }
+
+
+def parse_float(value, label):
+    try:
+        return float(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(f"{label} must be a number.") from exc
+
+
+def parse_int(value, label):
+    try:
+        text = str(value).strip()
+        number = int(text)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an integer.") from exc
+    if str(number) != text:
+        raise ValueError(f"{label} must be an integer.")
+    return number
+
+
+def format_number(value):
+    return f"{value:.12g}"
 
 
 def register_images(image_paths):
