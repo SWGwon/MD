@@ -2,7 +2,7 @@
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote, unquote, urlparse
 import subprocess
 import sys
 
@@ -21,8 +21,9 @@ def root_files(data_dir):
         return []
 
 
-def page(data=None, log=""):
+def page(data=None, log="", images=None):
     data = data or {}
+    images = images or []
     data_dir = data.get("data_dir", str(DEFAULT_DATA_DIR))
     out_dir = data.get("out_dir", str(DEFAULT_OUT_DIR))
     source = data.get("source", "")
@@ -47,12 +48,15 @@ def page(data=None, log=""):
   <meta charset="utf-8">
   <title>NPE Analysis</title>
   <style>
-    body {{ font-family: sans-serif; margin: 24px; max-width: 980px; }}
+    body {{ font-family: sans-serif; margin: 24px; max-width: 1120px; }}
     label {{ display: block; font-weight: 600; margin: 12px 0 4px; }}
     input, select {{ width: 100%; padding: 7px; box-sizing: border-box; }}
     .grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }}
     .actions {{ margin-top: 18px; display: flex; gap: 10px; }}
     button {{ padding: 9px 14px; cursor: pointer; }}
+    .plots {{ display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 20px; }}
+    .plot img {{ width: min(100%, 1000px); border: 1px solid #bbb; }}
+    .plot .caption {{ font-weight: 600; margin-bottom: 6px; }}
     pre {{ background: #111; color: #eee; padding: 14px; overflow: auto; min-height: 180px; }}
     .hint {{ color: #555; font-size: 0.92em; }}
   </style>
@@ -77,7 +81,7 @@ def page(data=None, log=""):
     <input name="out_dir" value="{escape(out_dir, quote=True)}">
 
     <label>Output prefix</label>
-    <input name="prefix" value="{val("prefix", "nocollimator")}">
+    <input name="prefix" value="{val("prefix", "npe")}">
 
     <div class="grid">
       <div>
@@ -90,15 +94,15 @@ def page(data=None, log=""):
       </div>
       <div>
         <label>Bins</label>
-        <input name="bins" value="{val("bins", "400")}">
+        <input id="bins" name="bins" value="{val("bins", "400")}">
       </div>
       <div>
-        <label>X min</label>
-        <input name="xmin" value="{val("xmin", "0")}">
+        <label>X min (NPE)</label>
+        <input id="xmin" name="xmin" value="{val("xmin", "0")}">
       </div>
       <div>
-        <label>X max</label>
-        <input name="xmax" value="{val("xmax", "-1")}">
+        <label>X max (NPE)</label>
+        <input id="xmax" name="xmax" value="{val("xmax", "-1")}">
       </div>
       <div>
         <label>TTT clock Hz</label>
@@ -106,10 +110,14 @@ def page(data=None, log=""):
       </div>
     </div>
 
+    <div class="hint">Run Analysis always creates and displays both a full-range result and the selected-range result.</div>
+
     <div class="actions">
       <button type="submit">Run Analysis</button>
     </div>
   </form>
+
+  {plot_section(images)}
 
   <h2>Log</h2>
   <pre>{escape(log)}</pre>
@@ -117,8 +125,28 @@ def page(data=None, log=""):
 </html>"""
 
 
+def plot_section(images):
+    if not images:
+        return ""
+    cards = []
+    for title, path in images:
+        cards.append(
+            f"""<div class="plot">
+  <div class="caption">{escape(title)}: {escape(Path(path).name)}</div>
+  <img src="/image?path={quote(str(path))}">
+</div>"""
+        )
+    return "<h2>Result Preview</h2><div class=\"plots\">" + "\n".join(cards) + "</div>"
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        parsed = urlparse(self.path)
+        if parsed.path == "/image":
+            query = parse_qs(parsed.query)
+            path = Path(unquote(query.get("path", [""])[0]))
+            self.respond_file(path)
+            return
         self.respond(page())
 
     def do_POST(self):
@@ -127,8 +155,8 @@ class Handler(BaseHTTPRequestHandler):
         data = {key: values[0] for key, values in fields.items() if values}
 
         if self.path == "/run":
-            log = self.run_analysis(data)
-            self.respond(page(data, log))
+            log, images = self.run_analysis(data)
+            self.respond(page(data, log, images))
         else:
             self.respond(page(data))
 
@@ -138,33 +166,62 @@ class Handler(BaseHTTPRequestHandler):
         source = data_dir / data.get("source", "")
         bg = data_dir / data.get("background", "")
         out_dir.mkdir(parents=True, exist_ok=True)
+        base_prefix = data.get("prefix", "npe")
+        xmin = data.get("xmin", "0")
+        xmax = data.get("xmax", "-1")
+        range_prefix = f"{base_prefix}_range_{sanitize_token(xmin)}_{sanitize_token(xmax)}"
+        full_prefix = f"{base_prefix}_full"
 
-        cmd = [
+        full_cmd = [
             str(WRAPPER),
             "-d", str(data_dir),
             "-s", str(source),
             "-b", str(bg),
             "-O", str(out_dir),
-            "-o", data.get("prefix", "npe"),
+            "-o", full_prefix,
             "-g", data.get("gain", "1.0e7"),
             "-q", data.get("quantile", "1.0"),
-            "-n", data.get("bins", "400"),
-            "-x", data.get("xmin", "0"),
-            "-X", data.get("xmax", "-1"),
+            "-n", "400",
+            "-x", "0",
+            "-X", "-1",
             "-c", data.get("clock", "125.0e6"),
+        ]
+        range_cmd = [
+            str(WRAPPER),
+            "-d", str(data_dir),
+            "-s", str(source),
+            "-b", str(bg),
+            "-O", str(out_dir),
+            "-o", range_prefix,
+            "-g", data.get("gain", "1.0e7"),
+            "-q", "1.0",
+            "-n", data.get("bins", "400"),
+            "-x", xmin,
+            "-X", xmax,
+            "-c", data.get("clock", "125.0e6"),
+        ]
+        images = [
+            ("Full range", out_dir / f"{full_prefix}_subtracted_total.png"),
+            ("Selected range", out_dir / f"{range_prefix}_subtracted_total.png"),
         ]
 
         try:
-            result = subprocess.run(
-                cmd,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                check=False,
-            )
-            return "$ " + " ".join(cmd) + "\n\n" + result.stdout
+            log = ""
+            for label, cmd in [("full range", full_cmd), ("selected range", range_cmd)]:
+                result = subprocess.run(
+                    cmd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+                log += "$ " + " ".join(cmd) + "\n"
+                log += f"\n--- {label} ---\n" + result.stdout + "\n"
+                if result.returncode != 0:
+                    break
+            return log, images
         except Exception as exc:
-            return "$ " + " ".join(cmd) + f"\n\nError: {exc}\n"
+            return f"Error: {exc}\n", images
 
     def respond(self, body):
         encoded = body.encode("utf-8")
@@ -174,8 +231,24 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
+    def respond_file(self, path):
+        if not path.is_file():
+            self.send_response(404)
+            self.end_headers()
+            return
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def log_message(self, fmt, *args):
         sys.stderr.write(fmt % args + "\n")
+
+
+def sanitize_token(value):
+    return str(value).strip().replace(".", "p").replace("-", "m").replace("/", "_")
 
 
 def main():

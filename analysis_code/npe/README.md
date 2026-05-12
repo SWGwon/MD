@@ -1,6 +1,6 @@
-# Cs137 NPE Analysis Tool
+# NPE Analysis Tool
 
-This directory contains the Cs137 liquid-scintillator NPE comparison workflow.
+This directory contains the liquid-scintillator NPE comparison workflow.
 
 ## Files
 
@@ -26,6 +26,18 @@ If Tkinter is available, a desktop GUI opens. If not, the launcher starts a loca
 ```text
 http://127.0.0.1:8765
 ```
+
+The GUI always runs and previews two total-subtraction plots:
+
+```text
+<prefix>_full_subtracted_total.png        Full-range result
+<prefix>_range_<xmin>_<xmax>_subtracted_total.png
+                                           User-selected NPE range
+```
+
+Use the full-range preview first, then adjust `Range X Min` and `Range X Max` to inspect the region of interest for the source being analyzed.
+
+By default the selected range is also full range (`X Max = -1`). Set a finite `X Max` after inspecting the full-range preview.
 
 ## Command-Line Usage
 
