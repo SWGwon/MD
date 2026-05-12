@@ -10,8 +10,28 @@ run_npe_analysis.sh     Command-line wrapper around the ROOT macro
 run_npe_gui.sh          Recommended GUI launcher
 run_npe_gui.py          Tkinter desktop GUI
 run_npe_web.py          Browser GUI fallback, no external Python packages
+check_env.sh            Checks Python, Tkinter, ROOT, and ROOT macro loading
 setup_env.sh            Optional environment check/venv helper
 ```
+
+## Environment
+
+Recommended runtime:
+
+```text
+ROOT    6.36 stable series for reproducible analysis
+Python  3.10 or newer
+Bash    4 or newer
+Tkinter optional; without it, run_npe_gui.sh uses the browser GUI fallback
+```
+
+Check the local environment before analyzing data:
+
+```bash
+analysis_code/npe/check_env.sh
+```
+
+If Tkinter is missing, install the OS package such as `python3-tk` on Ubuntu/Debian. ROOT must be available as the `root` command in `PATH`.
 
 ## Quick Start
 
