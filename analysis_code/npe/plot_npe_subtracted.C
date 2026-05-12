@@ -10,6 +10,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 double get_tree_quantile(TTree *tree, const TString &expr, double xmin, double xmax, double prob, const char *name) {
     if (!tree || xmax <= xmin) return xmax;
@@ -56,10 +57,20 @@ double adc_integral_to_pC(double dynamicRangeV, double samplingTimeNs, double re
     return (dynamicRangeV / maxADC) * (samplingTimeNs * 1.0e-9) / resistanceOhm * 1.0e12;
 }
 
+TString source_label_from_file(const char *sourceFile) {
+    std::string label(sourceFile ? sourceFile : "");
+    const size_t slash = label.find_last_of("/\\");
+    if (slash != std::string::npos) label = label.substr(slash + 1);
+    const size_t dot = label.rfind(".root");
+    if (dot != std::string::npos) label = label.substr(0, dot);
+    if (label.empty()) label = "Source";
+    return TString(label.c_str());
+}
+
 /**
  * @brief 소스 데이터에서 백그라운드를 차감한 NPE 분포를 그리는 매크로
  * 
- * @param sourceFile  소스 데이터 파일 (예: Cs137_1hr_prod.root)
+ * @param sourceFile  Source data ROOT file
  * @param bgFile      백그라운드 데이터 파일 (예: background_1hr_prod.root)
  * @param gain        PMT Gain 값 (기본값: 10^7)
  * @param bgScale     BG 스케일. 0보다 작으면 SyncTime_TTT span 비율로 자동 계산
@@ -73,8 +84,9 @@ double adc_integral_to_pC(double dynamicRangeV, double samplingTimeNs, double re
  * @param samplingTimeNs Sampling period in ns
  * @param resistanceOhm Digitizer input impedance
  * @param adcBits      ADC bit depth
+ * @param sourceLabel  Legend label for source data. Empty string derives it from sourceFile.
  */
-void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root", 
+void plot_npe_subtracted(const char* sourceFile = "source.root",
                          const char* bgFile = "background_1hr_prod.root", 
                          double gain = 1.0e7,
                          double bgScale = -1.0,
@@ -87,10 +99,13 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
                          double dynamicRangeV = 2.0,
                          double samplingTimeNs = 2.0,
                          double resistanceOhm = 50.0,
-                         int adcBits = 14) {
+                         int adcBits = 14,
+                         const char* sourceLabel = "") {
     
     gStyle->SetOptStat(0); // 차감 후에는 통계 박스가 부정확할 수 있어 끔
     TString prefix(outPrefix);
+    TString srcLabel(sourceLabel);
+    if (srcLabel.Length() == 0) srcLabel = source_label_from_file(sourceFile);
 
     // 1. 파일 열기
     TFile *fSrc = TFile::Open(sourceFile);
@@ -195,7 +210,7 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
         hSrc->Draw("HIST");
         hBG->Draw("SAME HIST");
         TLegend *legCh = new TLegend(0.55, 0.72, 0.88, 0.88);
-        legCh->AddEntry(hSrc, "Source (Cs137)", "l");
+        legCh->AddEntry(hSrc, srcLabel.Data(), "l");
         legCh->AddEntry(hBG, Form("BG #times %.3g", bgScale), "l");
         legCh->Draw();
 
@@ -271,7 +286,7 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
     hTotalSrc->Draw("HIST");
     hTotalBG->Draw("SAME HIST");
     TLegend *legOverlay = new TLegend(0.58, 0.72, 0.88, 0.88);
-    legOverlay->AddEntry(hTotalSrc, "Source (Cs137)", "l");
+    legOverlay->AddEntry(hTotalSrc, srcLabel.Data(), "l");
     legOverlay->AddEntry(hTotalBG, Form("BG #times %.3g", bgScale), "l");
     legOverlay->Draw();
     c_total_overlay->SaveAs(Form("%s_overlay_total_linear.png", prefix.Data()));
@@ -284,7 +299,7 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
     hTotalSrc->Draw("HIST");
     hTotalBG->Draw("SAME HIST");
     TLegend *legOverlayLog = new TLegend(0.58, 0.72, 0.88, 0.88);
-    legOverlayLog->AddEntry(hTotalSrc, "Source (Cs137)", "l");
+    legOverlayLog->AddEntry(hTotalSrc, srcLabel.Data(), "l");
     legOverlayLog->AddEntry(hTotalBG, Form("BG #times %.3g", bgScale), "l");
     legOverlayLog->Draw();
     c_total_overlay_log->SaveAs(Form("%s_overlay_total_log.png", prefix.Data()));
@@ -302,7 +317,7 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
     hTotalSrcRate->Draw("HIST");
     hTotalBGRate->Draw("SAME HIST");
     TLegend *legRate = new TLegend(0.54, 0.72, 0.88, 0.88);
-    legRate->AddEntry(hTotalSrcRate, Form("Source %.1f Hz", srcRate), "l");
+    legRate->AddEntry(hTotalSrcRate, Form("%s %.1f Hz", srcLabel.Data(), srcRate), "l");
     legRate->AddEntry(hTotalBGRate, Form("BG scaled to source live time %.1f Hz", bgRate), "l");
     legRate->Draw();
     c_total_rate_log->SaveAs(Form("%s_overlay_total_rate_log.png", prefix.Data()));
@@ -330,6 +345,7 @@ void plot_npe_subtracted(const char* sourceFile = "Cs137_1hr_prod.root",
 
     std::cout << "\n--- Background Subtraction Complete ---" << std::endl;
     std::cout << "Source: " << sourceFile << std::endl;
+    std::cout << "Source label: " << srcLabel << std::endl;
     std::cout << "BG: " << bgFile << std::endl;
     std::cout << "Charge_CH unit: ADC-count sample integral from DAQ production_dt5730.cpp" << std::endl;
     std::cout << "ADC integral to pC: " << adcIntegralToPC << " pC / (ADC count * sample)" << std::endl;

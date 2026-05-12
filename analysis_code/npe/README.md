@@ -39,15 +39,17 @@ Use the full-range preview first, then adjust `Range X Min` and `Range X Max` to
 
 By default the selected range is also full range (`X Max = -1`). Set a finite `X Max` after inspecting the full-range preview.
 
+`Source Label` controls the source name shown in plot legends. If left empty in command-line use, the label is derived from the source ROOT file name.
+
 ## Command-Line Usage
 
 ```bash
 analysis_code/npe/run_npe_analysis.sh \
   -d /path/to/data \
-  -s Cs137_nocollimator.root \
+  -s source.root \
   -b background_1hr_prod.root \
   -O /path/to/results \
-  -o nocollimator
+  -o source_run
 ```
 
 Useful options:
@@ -57,6 +59,7 @@ Useful options:
 -n BINS         Histogram bin count
 -g GAIN         PMT gain, default 1.0e7
 -q QUANTILE     X-axis quantile, 1.0 means full range
+-L LABEL        Source name shown in plot legends
 ```
 
 ## Charge and NPE Conversion
@@ -89,10 +92,10 @@ Example zoomed plot:
 ```bash
 analysis_code/npe/run_npe_analysis.sh \
   -d /path/to/data \
-  -s Cs137_nocollimator.root \
+  -s source.root \
   -b background_1hr_prod.root \
   -O /path/to/results \
-  -o nocollimator_zoom \
+  -o source_zoom \
   -x 0 -X 6000
 ```
 

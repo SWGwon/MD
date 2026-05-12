@@ -17,6 +17,7 @@ Options:
   -d DIR       Data directory used for interactive file selection
   -o PREFIX    Output PNG prefix
   -O DIR       Output directory for generated PNG files
+  -L LABEL     Source label shown in plot legends (default: source file name)
   -m FILE      ROOT macro path (default: plot_npe_subtracted.C next to this script)
   -g GAIN      PMT gain (default: 1.0e7)
   -q QUANTILE  X-axis quantile, 1.0 means full range (default: 1.0)
@@ -28,9 +29,9 @@ Options:
 
 Examples:
   ./run_npe_analysis.sh
-  ./run_npe_analysis.sh -s Cs137_nocollimator.root -b background_1hr_prod.root -o nocollimator
-  ./run_npe_analysis.sh -s Cs137_nocollimator.root -b background_1hr_prod.root -o zoom -x 0 -X 200000
-  ~/MD/analysis_code/run_npe_analysis.sh -d ~/MD/data/cs137 -s source.root -b bg.root -O ~/MD/plots -o cs137
+  ./run_npe_analysis.sh -s source.root -b background.root -o source_run
+  ./run_npe_analysis.sh -s source.root -b background.root -o zoom -x 0 -X 200000
+  ~/MD/analysis_code/run_npe_analysis.sh -d ~/MD/data/run1 -s source.root -b bg.root -O ~/MD/plots -o source_run
 EOF
 }
 
@@ -85,6 +86,13 @@ abs_dir() {
     (cd "$path" && pwd)
 }
 
+root_string_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    printf "%s" "$value"
+}
+
 source_file=""
 bg_file=""
 data_dir="$START_DIR"
@@ -97,14 +105,16 @@ n_bins="400"
 x_min="0"
 x_max="-1"
 ttt_clock="125.0e6"
+source_label=""
 
-while getopts ":s:b:d:o:O:m:g:q:n:x:X:c:h" opt; do
+while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:c:h" opt; do
     case "$opt" in
         s) source_file="$OPTARG" ;;
         b) bg_file="$OPTARG" ;;
         d) data_dir="$OPTARG" ;;
         o) out_prefix="$OPTARG" ;;
         O) output_dir="$OPTARG" ;;
+        L) source_label="$OPTARG" ;;
         m) macro_file="$OPTARG" ;;
         g) gain="$OPTARG" ;;
         q) x_quantile="$OPTARG" ;;
@@ -174,6 +184,7 @@ echo "  Output dir: $output_dir"
 echo "  Source:     $source_file"
 echo "  Background: $bg_file"
 echo "  Prefix:     $out_prefix"
+echo "  Label:      ${source_label:-source file name}"
 echo "  Gain:       $gain"
 echo "  X quantile: $x_quantile"
 echo "  Bins:       $n_bins"
@@ -181,7 +192,11 @@ echo "  X range:    [$x_min, $x_max]"
 echo
 
 cd "$output_dir"
-root -l -b -q "$macro_file(\"$source_file\",\"$bg_file\",$gain,-1,$x_quantile,$n_bins,$x_min,$x_max,$ttt_clock,\"$out_prefix\")"
+source_arg="$(root_string_escape "$source_file")"
+bg_arg="$(root_string_escape "$bg_file")"
+prefix_arg="$(root_string_escape "$out_prefix")"
+label_arg="$(root_string_escape "$source_label")"
+root -l -b -q "$macro_file(\"$source_arg\",\"$bg_arg\",$gain,-1,$x_quantile,$n_bins,$x_min,$x_max,$ttt_clock,\"$prefix_arg\",2.0,2.0,50.0,14,\"$label_arg\")"
 
 echo
 echo "Key outputs:"

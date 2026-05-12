@@ -26,6 +26,7 @@ class NpeAnalysisGui(tk.Tk):
         self.bg_var = tk.StringVar()
         self.out_dir_var = tk.StringVar(value=str(DEFAULT_OUT_DIR))
         self.prefix_var = tk.StringVar(value="npe")
+        self.source_label_var = tk.StringVar()
         self.gain_var = tk.StringVar(value="1.0e7")
         self.quantile_var = tk.StringVar(value="1.0")
         self.bins_var = tk.StringVar(value="400")
@@ -39,8 +40,8 @@ class NpeAnalysisGui(tk.Tk):
         root = ttk.Frame(self, padding=12)
         root.pack(fill=tk.BOTH, expand=True)
         root.columnconfigure(1, weight=1)
-        root.rowconfigure(7, weight=1)
-        root.rowconfigure(9, weight=1)
+        root.rowconfigure(8, weight=1)
+        root.rowconfigure(10, weight=1)
 
         self._file_row(root, 0, "Source ROOT", self.source_var, self.pick_source)
         self._file_row(root, 1, "Background ROOT", self.bg_var, self.pick_background)
@@ -49,8 +50,11 @@ class NpeAnalysisGui(tk.Tk):
         ttk.Label(root, text="Output Prefix").grid(row=3, column=0, sticky="w", pady=4)
         ttk.Entry(root, textvariable=self.prefix_var).grid(row=3, column=1, columnspan=2, sticky="ew", pady=4)
 
+        ttk.Label(root, text="Source Label").grid(row=4, column=0, sticky="w", pady=4)
+        ttk.Entry(root, textvariable=self.source_label_var).grid(row=4, column=1, columnspan=2, sticky="ew", pady=4)
+
         options = ttk.LabelFrame(root, text="Options", padding=8)
-        options.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 4))
+        options.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 4))
         for col in range(6):
             options.columnconfigure(col, weight=1)
 
@@ -63,7 +67,7 @@ class NpeAnalysisGui(tk.Tk):
         ttk.Label(options, text="Run Analysis creates full-range and selected-range plots. Inspect full range first, then adjust the selected range.").grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
 
         buttons = ttk.Frame(root)
-        buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(8, 8))
+        buttons.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 8))
         buttons.columnconfigure(2, weight=1)
 
         self.run_button = ttk.Button(buttons, text="Run Analysis", command=self.run_analysis)
@@ -72,18 +76,18 @@ class NpeAnalysisGui(tk.Tk):
         self.stop_button.grid(row=0, column=1)
         ttk.Button(buttons, text="Clear Log", command=self.clear_log).grid(row=0, column=3)
 
-        ttk.Label(root, text="Result Preview").grid(row=6, column=0, sticky="w")
+        ttk.Label(root, text="Result Preview").grid(row=7, column=0, sticky="w")
         self.preview_frame = ttk.Frame(root)
-        self.preview_frame.grid(row=7, column=0, columnspan=3, sticky="nsew")
+        self.preview_frame.grid(row=8, column=0, columnspan=3, sticky="nsew")
         self.preview_frame.columnconfigure(0, weight=1)
         self.preview_frame.columnconfigure(1, weight=1)
         self.preview_frame.columnconfigure(2, weight=1)
         self.preview_frame.columnconfigure(3, weight=1)
         self.preview_frame.rowconfigure(1, weight=1)
 
-        ttk.Label(root, text="Log").grid(row=8, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(root, text="Log").grid(row=9, column=0, sticky="w", pady=(8, 0))
         log_frame = ttk.Frame(root)
-        log_frame.grid(row=9, column=0, columnspan=3, sticky="nsew")
+        log_frame.grid(row=10, column=0, columnspan=3, sticky="nsew")
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
 
@@ -94,7 +98,7 @@ class NpeAnalysisGui(tk.Tk):
         self.log.configure(yscrollcommand=scroll.set)
 
         self.status_var = tk.StringVar(value="Ready")
-        ttk.Label(root, textvariable=self.status_var).grid(row=10, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        ttk.Label(root, textvariable=self.status_var).grid(row=11, column=0, columnspan=3, sticky="ew", pady=(8, 0))
 
     def _file_row(self, parent, row, label, variable, command):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=4)
@@ -111,6 +115,8 @@ class NpeAnalysisGui(tk.Tk):
             self.source_var.set(path)
             if self.prefix_var.get() in {"", "npe"}:
                 self.prefix_var.set(Path(path).stem)
+            if not self.source_label_var.get().strip():
+                self.source_label_var.set(Path(path).stem)
 
     def pick_background(self):
         path = filedialog.askopenfilename(title="Select background ROOT file", filetypes=[("ROOT files", "*.root"), ("All files", "*")])
@@ -154,6 +160,7 @@ class NpeAnalysisGui(tk.Tk):
             "-b", self.bg_var.get(),
             "-O", self.out_dir_var.get(),
             "-o", full_prefix,
+            "-L", self.source_label_var.get().strip(),
             "-g", self.gain_var.get().strip(),
             "-q", self.quantile_var.get().strip(),
             "-n", "400",
@@ -168,6 +175,7 @@ class NpeAnalysisGui(tk.Tk):
             "-b", self.bg_var.get(),
             "-O", self.out_dir_var.get(),
             "-o", range_prefix,
+            "-L", self.source_label_var.get().strip(),
             "-g", self.gain_var.get().strip(),
             "-q", "1.0",
             "-n", self.bins_var.get().strip(),

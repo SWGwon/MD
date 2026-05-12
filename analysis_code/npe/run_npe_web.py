@@ -28,6 +28,7 @@ def page(data=None, log="", images=None):
     out_dir = data.get("out_dir", str(DEFAULT_OUT_DIR))
     source = data.get("source", "")
     bg = data.get("background", "")
+    default_source_label = Path(source).stem if source else ""
     files = root_files(data_dir)
 
     def val(name, default=""):
@@ -82,6 +83,9 @@ def page(data=None, log="", images=None):
 
     <label>Output prefix</label>
     <input name="prefix" value="{val("prefix", "npe")}">
+
+    <label>Source label</label>
+    <input name="source_label" value="{val("source_label", default_source_label)}">
 
     <div class="grid">
       <div>
@@ -167,6 +171,7 @@ class Handler(BaseHTTPRequestHandler):
         bg = data_dir / data.get("background", "")
         out_dir.mkdir(parents=True, exist_ok=True)
         base_prefix = data.get("prefix", "npe")
+        source_label = data.get("source_label", "")
         xmin = data.get("xmin", "0")
         xmax = data.get("xmax", "-1")
         range_prefix = f"{base_prefix}_range_{sanitize_token(xmin)}_{sanitize_token(xmax)}"
@@ -179,6 +184,7 @@ class Handler(BaseHTTPRequestHandler):
             "-b", str(bg),
             "-O", str(out_dir),
             "-o", full_prefix,
+            "-L", source_label,
             "-g", data.get("gain", "1.0e7"),
             "-q", data.get("quantile", "1.0"),
             "-n", "400",
@@ -193,6 +199,7 @@ class Handler(BaseHTTPRequestHandler):
             "-b", str(bg),
             "-O", str(out_dir),
             "-o", range_prefix,
+            "-L", source_label,
             "-g", data.get("gain", "1.0e7"),
             "-q", "1.0",
             "-n", data.get("bins", "400"),
