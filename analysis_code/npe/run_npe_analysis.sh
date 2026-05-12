@@ -93,6 +93,47 @@ root_string_escape() {
     printf "%s" "$value"
 }
 
+root_string_arg() {
+    printf '"%s"' "$(root_string_escape "$1")"
+}
+
+build_root_macro_call() {
+    local macro="$1"
+    local src="$2"
+    local bg="$3"
+    local gain_value="$4"
+    local bg_scale="$5"
+    local quantile="$6"
+    local bins="$7"
+    local xmin="$8"
+    local xmax="$9"
+    local clock="${10}"
+    local prefix="${11}"
+    local dynamic_range="${12}"
+    local sampling_ns="${13}"
+    local resistance="${14}"
+    local adc_bits_value="${15}"
+    local label="${16}"
+
+    printf '%s(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)' \
+        "$macro" \
+        "$(root_string_arg "$src")" \
+        "$(root_string_arg "$bg")" \
+        "$gain_value" \
+        "$bg_scale" \
+        "$quantile" \
+        "$bins" \
+        "$xmin" \
+        "$xmax" \
+        "$clock" \
+        "$(root_string_arg "$prefix")" \
+        "$dynamic_range" \
+        "$sampling_ns" \
+        "$resistance" \
+        "$adc_bits_value" \
+        "$(root_string_arg "$label")"
+}
+
 source_file=""
 bg_file=""
 data_dir="$START_DIR"
@@ -100,12 +141,17 @@ out_prefix=""
 output_dir="$REPO_DIR/results"
 macro_file="$SCRIPT_DIR/plot_npe_subtracted.C"
 gain="1.0e7"
+bg_scale="-1"
 x_quantile="1.0"
 n_bins="400"
 x_min="0"
 x_max="-1"
 ttt_clock="125.0e6"
 source_label=""
+dynamic_range_v="2.0"
+sampling_time_ns="2.0"
+resistance_ohm="50.0"
+adc_bits="14"
 
 while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:c:h" opt; do
     case "$opt" in
@@ -192,11 +238,24 @@ echo "  X range:    [$x_min, $x_max]"
 echo
 
 cd "$output_dir"
-source_arg="$(root_string_escape "$source_file")"
-bg_arg="$(root_string_escape "$bg_file")"
-prefix_arg="$(root_string_escape "$out_prefix")"
-label_arg="$(root_string_escape "$source_label")"
-root -l -b -q "$macro_file(\"$source_arg\",\"$bg_arg\",$gain,-1,$x_quantile,$n_bins,$x_min,$x_max,$ttt_clock,\"$prefix_arg\",2.0,2.0,50.0,14,\"$label_arg\")"
+macro_call="$(build_root_macro_call \
+    "$macro_file" \
+    "$source_file" \
+    "$bg_file" \
+    "$gain" \
+    "$bg_scale" \
+    "$x_quantile" \
+    "$n_bins" \
+    "$x_min" \
+    "$x_max" \
+    "$ttt_clock" \
+    "$out_prefix" \
+    "$dynamic_range_v" \
+    "$sampling_time_ns" \
+    "$resistance_ohm" \
+    "$adc_bits" \
+    "$source_label")"
+root -l -b -q "$macro_call"
 
 echo
 echo "Key outputs:"
