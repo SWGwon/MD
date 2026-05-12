@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <chrono>
 
 double get_tree_quantile(TTree *tree, const TString &expr, double xmin, double xmax, double prob, const char *name) {
     if (!tree || xmax <= xmin) return xmax;
@@ -37,6 +38,16 @@ void style_source_bg(TH1D *hSrc, TH1D *hBG) {
     hBG->SetLineWidth(2);
     hBG->SetLineStyle(2);
     hBG->SetFillStyle(0);
+}
+
+void configure_tree_cache(TTree *tree, int nChannels) {
+    if (!tree) return;
+    tree->SetCacheSize(64 * 1024 * 1024);
+    if (tree->GetBranch("SyncTime_TTT")) tree->AddBranchToCache("SyncTime_TTT", kTRUE);
+    for (int i = 0; i < nChannels; ++i) {
+        TString branch = Form("Charge_CH%d", i);
+        if (tree->GetBranch(branch)) tree->AddBranchToCache(branch, kTRUE);
+    }
 }
 
 double get_live_seconds(TTree *tree, double tttClockHz) {
@@ -101,7 +112,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
                          double resistanceOhm = 50.0,
                          int adcBits = 14,
                          const char* sourceLabel = "") {
-    
+    const auto startTime = std::chrono::steady_clock::now();
     gStyle->SetOptStat(0); // 차감 후에는 통계 박스가 부정확할 수 있어 끔
     TString prefix(outPrefix);
     TString srcLabel(sourceLabel);
@@ -129,6 +140,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     const double adcIntegralToNPE = adcIntegralToPC / (gain * e_charge_pC);
     TString npe_conv = Form("* %e", adcIntegralToNPE);
     const int nChannels = 8;
+    configure_tree_cache(tSrc, nChannels);
+    configure_tree_cache(tBG, nChannels);
     const double srcLiveSeconds = get_live_seconds(tSrc, tttClockHz);
     const double bgLiveSeconds = get_live_seconds(tBG, tttClockHz);
     const double srcRate = srcLiveSeconds > 0 ? tSrc->GetEntries() / srcLiveSeconds : 0.0;
@@ -146,6 +159,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     std::vector<int> activeChannels;
     for (int i = 0; i < nChannels; ++i) {
         TString branch = Form("Charge_CH%d", i);
+        if (!tSrc->GetBranch(branch) || !tBG->GetBranch(branch)) continue;
         if (tSrc->GetMaximum(branch) != 0 || tBG->GetMaximum(branch) != 0) {
             activeChannels.push_back(i);
         }
@@ -164,16 +178,24 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     c_overlay_ch->Divide(static_cast<int>(activeChannels.size()), 1);
 
     TString total_expr_raw = "(";
+    std::vector<double> rawSrcMins(activeChannels.size(), 0.0);
+    std::vector<double> rawSrcMaxs(activeChannels.size(), 0.0);
+    std::vector<double> rawBgMins(activeChannels.size(), 0.0);
+    std::vector<double> rawBgMaxs(activeChannels.size(), 0.0);
 
     for (size_t idx = 0; idx < activeChannels.size(); ++idx) {
         int i = activeChannels[idx];
         TString branch = Form("Charge_CH%d", i);
         TString npeExpr = Form("(%s) %s", branch.Data(), npe_conv.Data());
-        
-        const double srcMin = tSrc->GetMinimum(branch) * adcIntegralToNPE;
-        const double srcMax = tSrc->GetMaximum(branch) * adcIntegralToNPE;
-        const double bgMin = tBG->GetMinimum(branch) * adcIntegralToNPE;
-        const double bgMax = tBG->GetMaximum(branch) * adcIntegralToNPE;
+
+        rawSrcMins[idx] = tSrc->GetMinimum(branch);
+        rawSrcMaxs[idx] = tSrc->GetMaximum(branch);
+        rawBgMins[idx] = tBG->GetMinimum(branch);
+        rawBgMaxs[idx] = tBG->GetMaximum(branch);
+        const double srcMin = rawSrcMins[idx] * adcIntegralToNPE;
+        const double srcMax = rawSrcMaxs[idx] * adcIntegralToNPE;
+        const double bgMin = rawBgMins[idx] * adcIntegralToNPE;
+        const double bgMax = rawBgMaxs[idx] * adcIntegralToNPE;
         double xmin = std::min(srcMin, bgMin);
         double xmax = std::max(srcMax, bgMax);
         if (xmin == xmax) xmax = xmin + 1.0;
@@ -241,25 +263,24 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     // --- 전체 총합 차감 분포 ---
     TCanvas *c_total_sub = new TCanvas("c_total_sub", "Total NPE Subtraction", 800, 600);
     
-    double rawSrcMin = 0.0;
-    double rawSrcMax = 0.0;
-    double rawBgMin = 0.0;
-    double rawBgMax = 0.0;
+    double totalRawSrcMin = 0.0;
+    double totalRawSrcMax = 0.0;
+    double totalRawBgMin = 0.0;
+    double totalRawBgMax = 0.0;
     for (size_t idx = 0; idx < activeChannels.size(); ++idx) {
-        TString branch = Form("Charge_CH%d", activeChannels[idx]);
-        rawSrcMin += tSrc->GetMinimum(branch);
-        rawSrcMax += tSrc->GetMaximum(branch);
-        rawBgMin += tBG->GetMinimum(branch);
-        rawBgMax += tBG->GetMaximum(branch);
+        totalRawSrcMin += rawSrcMins[idx];
+        totalRawSrcMax += rawSrcMaxs[idx];
+        totalRawBgMin += rawBgMins[idx];
+        totalRawBgMax += rawBgMaxs[idx];
     }
-    double t_xmin = std::min(rawSrcMin, rawBgMin) * adcIntegralToNPE;
-    double t_xmax = std::max(rawSrcMax, rawBgMax) * adcIntegralToNPE;
+    double t_xmin = std::min(totalRawSrcMin, totalRawBgMin) * adcIntegralToNPE;
+    double t_xmax = std::max(totalRawSrcMax, totalRawBgMax) * adcIntegralToNPE;
     if (t_xmin == t_xmax) t_xmax = t_xmin + 1.0;
     if (xQuantile > 0 && xQuantile < 1) {
         const double srcQ = get_tree_quantile(tSrc, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_src");
         const double bgQ = get_tree_quantile(tBG, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_bg");
         t_xmax = std::max(srcQ, bgQ);
-        if (t_xmax <= t_xmin) t_xmax = std::max(rawSrcMax, rawBgMax) * adcIntegralToNPE;
+        if (t_xmax <= t_xmin) t_xmax = std::max(totalRawSrcMax, totalRawBgMax) * adcIntegralToNPE;
     }
     if (xMaxUser > xMinUser) {
         t_xmin = xMinUser;
@@ -364,6 +385,9 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     std::cout << "X-axis quantile: " << xQuantile << std::endl;
     std::cout << "Bins: " << nBins << ", X range: [" << t_xmin << ", " << t_xmax << "]" << std::endl;
     std::cout << "Output prefix: " << prefix << std::endl;
+    const auto endTime = std::chrono::steady_clock::now();
+    const double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
+    std::cout << "Elapsed wall time [s]: " << elapsedSeconds << std::endl;
     std::cout << "Results saved to: " << prefix << "_subtracted_channels.png, "
               << prefix << "_subtracted_total.png" << std::endl;
     std::cout << "Overlay plots saved to: " << prefix << "_overlay_channels_log.png, "
