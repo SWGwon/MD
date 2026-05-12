@@ -2,7 +2,7 @@
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 import subprocess
 import sys
 
@@ -12,6 +12,7 @@ REPO_DIR = APP_DIR.parents[1]
 WRAPPER = APP_DIR / "run_npe_analysis.sh"
 DEFAULT_DATA_DIR = Path.cwd()
 DEFAULT_OUT_DIR = REPO_DIR / "results"
+IMAGE_REGISTRY = {}
 
 
 def root_files(data_dir):
@@ -133,11 +134,11 @@ def plot_section(images):
     if not images:
         return ""
     cards = []
-    for title, path in images:
+    for title, token, path in images:
         cards.append(
             f"""<div class="plot">
   <div class="caption">{escape(title)}: {escape(Path(path).name)}</div>
-  <img src="/image?path={quote(str(path))}">
+  <img src="/image?id={quote(token)}">
 </div>"""
         )
     return "<h2>Result Preview</h2><div class=\"plots\">" + "\n".join(cards) + "</div>"
@@ -148,8 +149,7 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/image":
             query = parse_qs(parsed.query)
-            path = Path(unquote(query.get("path", [""])[0]))
-            self.respond_file(path)
+            self.respond_image(query.get("id", [""])[0])
             return
         self.respond(page())
 
@@ -207,10 +207,11 @@ class Handler(BaseHTTPRequestHandler):
             "-X", xmax,
             "-c", data.get("clock", "125.0e6"),
         ]
-        images = [
+        image_paths = [
             ("Full range", out_dir / f"{full_prefix}_subtracted_total.png"),
             ("Selected range", out_dir / f"{range_prefix}_subtracted_total.png"),
         ]
+        images = register_images(image_paths)
 
         try:
             log = ""
@@ -238,8 +239,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
 
-    def respond_file(self, path):
-        if not path.is_file():
+    def respond_image(self, token):
+        path = IMAGE_REGISTRY.get(token)
+        if path is None or not path.is_file():
             self.send_response(404)
             self.end_headers()
             return
@@ -256,6 +258,19 @@ class Handler(BaseHTTPRequestHandler):
 
 def sanitize_token(value):
     return str(value).strip().replace(".", "p").replace("-", "m").replace("/", "_")
+
+
+def register_images(image_paths):
+    IMAGE_REGISTRY.clear()
+    registered = []
+    for idx, (title, path) in enumerate(image_paths):
+        resolved = Path(path).expanduser().resolve()
+        if resolved.suffix.lower() != ".png":
+            continue
+        token = f"plot{idx}"
+        IMAGE_REGISTRY[token] = resolved
+        registered.append((title, token, resolved))
+    return registered
 
 
 def main():
