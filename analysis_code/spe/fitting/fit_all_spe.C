@@ -10,6 +10,7 @@
 #include <TMath.h>
 #include <TStyle.h>
 #include <TSpectrum.h>
+#include "spe_fit_common.h"
 
 Double_t spe_model_final(Double_t *x, Double_t *par) {
     Double_t xx = x[0];
@@ -32,7 +33,7 @@ Double_t spe_model_final(Double_t *x, Double_t *par) {
     return N * sum + bg;
 }
 
-void fit_all_spe(int ch = 0) {
+void fit_all_spe(int ch = 0, const char *ledPattern = "output_charge_run2_%dV.root") {
     gStyle->SetOptFit(1111);
     std::vector<int> voltages = {1600, 1700, 1800, 1900, 2000, 2100, 2200};
     TGraphErrors *gr_gain = new TGraphErrors();
@@ -40,14 +41,15 @@ void fit_all_spe(int ch = 0) {
     gr_gain->SetMarkerColor(kRed);
 
     for (int v : voltages) {
-        TString led_fn = TString::Format("output_charge_run2_%dV.root", v);
-        TFile *f = TFile::Open(led_fn);
-        if (!f || f->IsZombie()) continue;
-        TTree *t = (TTree*)f->Get("T_Charge");
+        TString led_fn = spe_format_file(ledPattern, v);
         
         double x_max = (v < 2000) ? 8.0 : 45.0;
-        TH1D *h = new TH1D("h", TString::Format("%dV Ch%d;Charge [pC];Counts", v, ch), 600, -1.0, x_max);
-        t->Draw(TString::Format("charge_pC[%d]>>h", ch), "", "goff");
+        TH1D *h = spe_make_charge_hist(
+            led_fn, ch, "h",
+            TString::Format("%dV Ch%d;Charge [pC];Counts", v, ch),
+            600, -1.0, x_max
+        );
+        if (!h) continue;
 
         // 1. Pedestal Fit (Focus on small area near 0)
         TF1 *f_ped_pre = new TF1("f_ped_pre", "gaus", -0.2, 0.3);
@@ -93,7 +95,11 @@ void fit_all_spe(int ch = 0) {
 
         TCanvas *c = new TCanvas(); c->SetLogy(); h->Draw(); f_spe->Draw("same");
         c->SaveAs(TString::Format("fit_res_%dV.png", v));
-        delete c; delete h; f->Close();
+        delete c; delete h;
+    }
+    if (gr_gain->GetN() == 0) {
+        std::cerr << "No valid gain points. Skipping gain curve plot." << std::endl;
+        return;
     }
     TCanvas *cg = new TCanvas(); cg->SetLogy(); gr_gain->Draw("AP");
     cg->SaveAs("gain_curve_final.png");

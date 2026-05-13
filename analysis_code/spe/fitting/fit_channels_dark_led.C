@@ -9,6 +9,7 @@
 #include <TLegend.h>
 #include <TMath.h>
 #include <TStyle.h>
+#include "spe_fit_common.h"
 
 // SPE 분포 모델 (Poisson + Gaussians + Background)
 Double_t spe_model_full(Double_t *x, Double_t *par) {
@@ -25,7 +26,8 @@ Double_t spe_model_full(Double_t *x, Double_t *par) {
     return N * sum + bg;
 }
 
-void fit_channels_dark_led() {
+void fit_channels_dark_led(const char *ledPattern = "output_charge_run2_%dV.root",
+                           const char *darkPattern = "output_charge_run2_dark_%dV.root") {
     gStyle->SetOptFit(0); 
     std::vector<int> voltages = {1600, 1700, 1800, 1900, 2000, 2100, 2200};
     int channels[] = {0, 1};
@@ -44,32 +46,26 @@ void fit_channels_dark_led() {
         std::cout << "\n>>> Processing Channel " << ch << " (Dark + LED) <<<" << std::endl;
         
         for (int v : voltages) {
-            TString led_fn = TString::Format("output_charge_run2_%dV.root", v);
-            TString dark_fn = TString::Format("output_charge_run2_dark_%dV.root", v);
-            
-            TFile *f_led = TFile::Open(led_fn);
-            if (!f_led || f_led->IsZombie()) continue;
-            TTree *t_led = (TTree*)f_led->Get("T_Charge");
+            TString led_fn = spe_format_file(ledPattern, v);
+            TString dark_fn = spe_format_file(darkPattern, v);
             
             double x_max = (v < 2000) ? 8.0 : 45.0;
-            TH1D *h_led = new TH1D("h_led", TString::Format("Ch%d %dV Fit (Dark+LED);Charge [pC];Counts", ch, v), 600, -1.0, x_max);
-            t_led->Draw(TString::Format("charge_pC[%d]>>h_led", ch), "", "goff");
+            TH1D *h_led = spe_make_charge_hist(
+                led_fn, ch, "h_led",
+                TString::Format("Ch%d %dV Fit (Dark+LED);Charge [pC];Counts", ch, v),
+                600, -1.0, x_max
+            );
+            if (!h_led) continue;
 
             // 1. Pedestal 위치 추정 (Dark 데이터 우선 사용)
             double q0 = 0.0, s0 = 0.05;
-            TFile *f_dark = TFile::Open(dark_fn);
-            if (f_dark && !f_dark->IsZombie()) {
-                TTree *t_dark = (TTree*)f_dark->Get("T_Charge");
-                if (t_dark) {
-                    TH1D *h_dark = new TH1D("h_dark", "Dark", 300, -0.5, 0.5);
-                    t_dark->Draw(TString::Format("charge_pC[%d]>>h_dark", ch), "", "goff");
-                    TF1 *f_ped_dark = new TF1("f_ped_dark", "gaus", -0.2, 0.2);
-                    h_dark->Fit(f_ped_dark, "RQN");
-                    q0 = f_ped_dark->GetParameter(1);
-                    s0 = f_ped_dark->GetParameter(2);
-                    delete h_dark; delete f_ped_dark;
-                }
-                f_dark->Close();
+            TH1D *h_dark = spe_make_charge_hist(dark_fn, ch, "h_dark", "Dark;Charge [pC];Counts", 300, -0.5, 0.5);
+            if (h_dark) {
+                TF1 *f_ped_dark = new TF1("f_ped_dark", "gaus", -0.2, 0.2);
+                h_dark->Fit(f_ped_dark, "RQN");
+                q0 = f_ped_dark->GetParameter(1);
+                s0 = f_ped_dark->GetParameter(2);
+                delete h_dark; delete f_ped_dark;
             } else {
                 // Dark 파일이 없는 경우(예: 1900V) LED에서 직접 추정
                 h_led->GetXaxis()->SetRangeUser(-0.3, 0.4);
@@ -112,7 +108,7 @@ void fit_channels_dark_led() {
             f_spe->Draw("same");
             c->SaveAs(TString::Format("fit_full_ch%d_%dV.png", ch, v));
             
-            delete c; delete h_led; f_led->Close();
+            delete c; delete h_led;
         }
     }
 
@@ -128,7 +124,10 @@ void fit_channels_dark_led() {
     TLegend *leg = new TLegend(0.15, 0.75, 0.45, 0.88);
     leg->SetBorderSize(1);
 
+    bool hasPoints = false;
     for (int i = 0; i < 2; i++) {
+        if (gr_gains[i]->GetN() == 0) continue;
+        hasPoints = true;
         gr_gains[i]->Draw("P same");
         TF1 *f_gain = new TF1(TString::Format("f_gain_full_ch%d", i), "[0]*TMath::Power(x, [1])", 1550, 2250);
         f_gain->SetLineColor(colors[i]);
@@ -139,6 +138,11 @@ void fit_channels_dark_led() {
         leg->AddEntry(gr_gains[i], TString::Format("Channel %d", i), "LP");
     }
     
+    if (!hasPoints) {
+        std::cerr << "No valid gain points. Skipping gain comparison plot." << std::endl;
+        delete cg;
+        return;
+    }
     leg->Draw();
     cg->SaveAs("gain_comp_full_ch0_ch1.png");
     

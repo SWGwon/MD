@@ -6,7 +6,6 @@ ROOT-based analysis tools and experiment-specific macros for PMT/liquid-scintill
 
 ```text
 analysis_code/
-  production.C          # Raw waveform to charge/feature production macro
   view_waveforms.C      # General waveform viewer
   npe/                  # Cs137 NPE/background-subtraction analysis tool
   reflection_legacy/    # Older reflection-test helper macros kept for reference

@@ -8,6 +8,7 @@
 #include <TGraphErrors.h>
 #include <TMath.h>
 #include <TStyle.h>
+#include "spe_fit_common.h"
 
 Double_t spe_model_led(Double_t *x, Double_t *par) {
     Double_t xx = x[0];
@@ -30,7 +31,7 @@ Double_t spe_model_led(Double_t *x, Double_t *par) {
     return N * sum + bg;
 }
 
-void fit_led_only(int ch = 0) {
+void fit_led_only(int ch = 0, const char *ledPattern = "output_charge_run2_%dV.root") {
     gStyle->SetOptFit(1111);
     std::vector<int> voltages = {1600, 1700, 1800, 1900, 2000, 2100, 2200};
     
@@ -40,17 +41,15 @@ void fit_led_only(int ch = 0) {
     gr_gain->SetTitle(TString::Format("Gain vs Voltage (LED Only, Ch%d);Voltage [V];Gain", ch));
 
     for (int v : voltages) {
-        TString led_fn = TString::Format("output_charge_run2_%dV.root", v);
-        TFile *f = TFile::Open(led_fn);
-        if (!f || f->IsZombie()) {
-            std::cout << "Cannot open " << led_fn << std::endl;
-            continue;
-        }
-        TTree *t = (TTree*)f->Get("T_Charge");
+        TString led_fn = spe_format_file(ledPattern, v);
         
         double x_max = (v < 2000) ? 8.0 : 45.0;
-        TH1D *h = new TH1D("h", TString::Format("LED Only %dV Ch%d;Charge [pC];Counts", v, ch), 600, -1.0, x_max);
-        t->Draw(TString::Format("charge_pC[%d]>>h", ch), "", "goff");
+        TH1D *h = spe_make_charge_hist(
+            led_fn, ch, "h",
+            TString::Format("LED Only %dV Ch%d;Charge [pC];Counts", v, ch),
+            600, -1.0, x_max
+        );
+        if (!h) continue;
 
         // --- 1. LED 데이터 자체에서 Pedestal 찾기 ---
         h->GetXaxis()->SetRangeUser(-0.3, 0.5);
@@ -105,9 +104,12 @@ void fit_led_only(int ch = 0) {
         c->SaveAs(TString::Format("fit_led_only_%dV_ch%d.png", v, ch));
         delete c; 
         delete h; 
-        f->Close();
     }
     
+    if (gr_gain->GetN() == 0) {
+        std::cerr << "No valid gain points. Skipping gain curve plot." << std::endl;
+        return;
+    }
     TCanvas *cg = new TCanvas(); 
     cg->SetLogy(); 
     gr_gain->Draw("AP");

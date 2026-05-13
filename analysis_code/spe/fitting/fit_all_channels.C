@@ -9,6 +9,7 @@
 #include <TLegend.h>
 #include <TMath.h>
 #include <TStyle.h>
+#include "spe_fit_common.h"
 
 // SPE 분포 모델 (Poisson + Gaussians + Background)
 Double_t spe_model_final(Double_t *x, Double_t *par) {
@@ -25,7 +26,7 @@ Double_t spe_model_final(Double_t *x, Double_t *par) {
     return N * sum + bg;
 }
 
-void fit_all_channels() {
+void fit_all_channels(const char *ledPattern = "output_charge_run2_%dV.root") {
     gStyle->SetOptFit(0); 
     std::vector<int> voltages = {1600, 1700, 1800, 1900, 2000, 2100, 2200};
     int channels[] = {0, 1};
@@ -44,14 +45,15 @@ void fit_all_channels() {
         std::cout << "\n>>> Processing Channel " << ch << " <<<" << std::endl;
         
         for (int v : voltages) {
-            TString led_fn = TString::Format("output_charge_run2_%dV.root", v);
-            TFile *f = TFile::Open(led_fn);
-            if (!f || f->IsZombie()) continue;
-            TTree *t = (TTree*)f->Get("T_Charge");
+            TString led_fn = spe_format_file(ledPattern, v);
             
             double x_max = (v < 2000) ? 8.0 : 45.0;
-            TH1D *h = new TH1D("h", TString::Format("Ch%d %dV Fit;Charge [pC];Counts", ch, v), 600, -1.0, x_max);
-            t->Draw(TString::Format("charge_pC[%d]>>h", ch), "", "goff");
+            TH1D *h = spe_make_charge_hist(
+                led_fn, ch, "h",
+                TString::Format("Ch%d %dV Fit;Charge [pC];Counts", ch, v),
+                600, -1.0, x_max
+            );
+            if (!h) continue;
 
             // 1. Pedestal 위치 추정
             h->GetXaxis()->SetRangeUser(-0.3, 0.4);
@@ -90,7 +92,7 @@ void fit_all_channels() {
             f_spe->Draw("same");
             c->SaveAs(TString::Format("fit_result_ch%d_%dV.png", ch, v));
             
-            delete c; delete h; f->Close();
+            delete c; delete h;
         }
     }
 
@@ -105,7 +107,10 @@ void fit_all_channels() {
     TLegend *leg = new TLegend(0.15, 0.75, 0.45, 0.88);
     leg->SetBorderSize(1);
 
+    bool hasPoints = false;
     for (int i = 0; i < 2; i++) {
+        if (gr_gains[i]->GetN() == 0) continue;
+        hasPoints = true;
         gr_gains[i]->Draw("P same");
         TF1 *f_gain = new TF1(TString::Format("f_gain_ch%d", i), "[0]*TMath::Power(x, [1])", 1550, 2250);
         f_gain->SetLineColor(colors[i]);
@@ -115,6 +120,11 @@ void fit_all_channels() {
         leg->AddEntry(gr_gains[i], TString::Format("Channel %d (k=%.2f)", i, f_gain->GetParameter(1)), "LP");
     }
     
+    if (!hasPoints) {
+        std::cerr << "No valid gain points. Skipping gain comparison plot." << std::endl;
+        delete cg;
+        return;
+    }
     leg->Draw();
     cg->SaveAs("gain_comparison_ch0_ch1.png");
 }

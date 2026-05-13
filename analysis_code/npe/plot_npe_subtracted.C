@@ -170,6 +170,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         return;
     }
 
+    std::vector<TH1D*> histogramsToWrite;
+
     // --- 채널별 차감 분포 ---
     TCanvas *c_sub = new TCanvas("c_sub", Form("Background Subtracted NPE (Gain=%.1e)", gain), 1200, 600);
     c_sub->Divide(static_cast<int>(activeChannels.size()), 1);
@@ -223,6 +225,9 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         TH1D *hSub = (TH1D*)hSrc->Clone(Form("hSub_ch%d", i));
         hSub->SetTitle(Form("CH%d: Source - %.3g #times BG;NPE;Counts", i, bgScale));
         hSub->Add(hBG, -1.0);
+        histogramsToWrite.push_back(hSrc);
+        histogramsToWrite.push_back(hBG);
+        histogramsToWrite.push_back(hSub);
 
         c_overlay_ch->cd(static_cast<int>(idx) + 1);
         gPad->SetLogy();
@@ -298,6 +303,9 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     TH1D *hTotalSub = (TH1D*)hTotalSrc->Clone("hTotalSub");
     hTotalSub->SetTitle(Form("Total NPE (Source - %.3g #times BG, Gain=%.1e);NPE;Counts", bgScale, gain));
     hTotalSub->Add(hTotalBG, -1.0);
+    histogramsToWrite.push_back(hTotalSrc);
+    histogramsToWrite.push_back(hTotalBG);
+    histogramsToWrite.push_back(hTotalSub);
 
     TCanvas *c_total_overlay = new TCanvas("c_total_overlay", "Total NPE Source vs Background", 900, 650);
     c_total_overlay->cd();
@@ -328,6 +336,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     TH1D *hTotalSrcRate = make_rate_hist(hTotalSrc, srcLiveSeconds, "hTotalSrcRate");
     TH1D *hTotalBGRate = make_rate_hist(hTotalBG, srcLiveSeconds, "hTotalBGRate");
     style_source_bg(hTotalSrcRate, hTotalBGRate);
+    histogramsToWrite.push_back(hTotalSrcRate);
+    histogramsToWrite.push_back(hTotalBGRate);
 
     TCanvas *c_total_rate_log = new TCanvas("c_total_rate_log", "Total NPE Rate-Normalized Source vs Background", 900, 650);
     c_total_rate_log->cd();
@@ -364,6 +374,18 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
 
     c_total_sub->SaveAs(Form("%s_subtracted_total.png", prefix.Data()));
 
+    TString histOutName = Form("%s_histograms.root", prefix.Data());
+    TFile *fHistOut = TFile::Open(histOutName, "RECREATE");
+    if (!fHistOut || fHistOut->IsZombie()) {
+        std::cerr << "Error creating histogram output file: " << histOutName << std::endl;
+    } else {
+        fHistOut->cd();
+        for (TH1D *hist : histogramsToWrite) {
+            if (hist) hist->Write();
+        }
+        fHistOut->Close();
+    }
+
     std::cout << "\n--- Background Subtraction Complete ---" << std::endl;
     std::cout << "Source: " << sourceFile << std::endl;
     std::cout << "Source label: " << srcLabel << std::endl;
@@ -385,6 +407,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     std::cout << "X-axis quantile: " << xQuantile << std::endl;
     std::cout << "Bins: " << nBins << ", X range: [" << t_xmin << ", " << t_xmax << "]" << std::endl;
     std::cout << "Output prefix: " << prefix << std::endl;
+    std::cout << "Histogram ROOT file: " << histOutName << std::endl;
     const auto endTime = std::chrono::steady_clock::now();
     const double elapsedSeconds = std::chrono::duration<double>(endTime - startTime).count();
     std::cout << "Elapsed wall time [s]: " << elapsedSeconds << std::endl;
@@ -394,4 +417,5 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
               << prefix << "_overlay_total_linear.png, "
               << prefix << "_overlay_total_log.png, "
               << prefix << "_overlay_total_rate_log.png" << std::endl;
+    std::cout << "Histograms saved to: " << histOutName << std::endl;
 }

@@ -6,6 +6,7 @@
 #include <TLegend.h>
 #include <TMath.h>
 #include <TStyle.h>
+#include "spe_fit_common.h"
 
 // Model for SPE distribution
 // x: charge [pC]
@@ -36,21 +37,23 @@ Double_t spe_model(Double_t *x, Double_t *par) {
     return N * sum;
 }
 
-void fit_spe(int voltage = 1600, int ch = 0) {
+void fit_spe(int voltage = 1600,
+             int ch = 0,
+             const char *ledPattern = "output_charge_run2_%dV.root",
+             const char *darkPattern = "output_charge_run2_dark_%dV.root") {
     gStyle->SetOptFit(1111);
     
-    TString led_filename = TString::Format("output_charge_run2_%dV.root", voltage);
-    TString dark_filename = TString::Format("output_charge_run2_dark_%dV.root", voltage);
+    TString led_filename = spe_format_file(ledPattern, voltage);
+    TString dark_filename = spe_format_file(darkPattern, voltage);
     
-    TFile *f_led = TFile::Open(led_filename);
-    if (!f_led || f_led->IsZombie()) {
-        std::cerr << "Cannot open " << led_filename << std::endl;
-        return;
-    }
-    
-    TH1D *h_led = (TH1D*)f_led->Get(TString::Format("hCharge_Ch%d", ch));
+    double x_max = (voltage < 2000) ? 8.0 : 45.0;
+    TH1D *h_led = spe_make_charge_hist(
+        led_filename, ch, "h_led",
+        TString::Format("%dV Ch%d;Charge [pC];Counts", voltage, ch),
+        600, -1.0, x_max
+    );
     if (!h_led) {
-        std::cerr << "Cannot find hCharge_Ch" << ch << " in LED file" << std::endl;
+        std::cerr << "Cannot build LED charge histogram from " << led_filename << std::endl;
         return;
     }
     
@@ -58,17 +61,15 @@ void fit_spe(int voltage = 1600, int ch = 0) {
     double q0_init = 0.0;
     double s0_init = 0.01;
     
-    TFile *f_dark = TFile::Open(dark_filename);
-    if (f_dark && !f_dark->IsZombie()) {
-        TH1D *h_dark = (TH1D*)f_dark->Get(TString::Format("hCharge_Ch%d", ch));
-        if (h_dark) {
-            // Fit dark data with a simple Gaussian for pedestal
-            TF1 *f_ped = new TF1("f_ped", "gaus", -0.2, 0.2);
-            h_dark->Fit(f_ped, "QN");
-            q0_init = f_ped->GetParameter(1);
-            s0_init = f_ped->GetParameter(2);
-        }
-        f_dark->Close();
+    TH1D *h_dark = spe_make_charge_hist(dark_filename, ch, "h_dark", "Dark;Charge [pC];Counts", 300, -0.5, 0.5);
+    if (h_dark) {
+        // Fit dark data with a simple Gaussian for pedestal
+        TF1 *f_ped = new TF1("f_ped", "gaus", -0.2, 0.2);
+        h_dark->Fit(f_ped, "QN");
+        q0_init = f_ped->GetParameter(1);
+        s0_init = f_ped->GetParameter(2);
+        delete f_ped;
+        delete h_dark;
     } else {
         std::cout << "Warning: Dark file for " << voltage << "V not found. Using defaults for pedestal." << std::endl;
         // Simple heuristic for pedestal if dark run is missing
@@ -105,4 +106,5 @@ void fit_spe(int voltage = 1600, int ch = 0) {
     std::cout << "Voltage: " << voltage << "V" << std::endl;
     std::cout << "SPE Charge: " << q_spe << " pC" << std::endl;
     std::cout << "Estimated Gain: " << gain << std::endl;
+    delete h_led;
 }
