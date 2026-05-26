@@ -34,6 +34,7 @@ class NpeAnalysisGui(tk.Tk):
         self.xmin_var = tk.StringVar(value="0")
         self.xmax_var = tk.StringVar(value="-1")
         self.clock_var = tk.StringVar(value="125.0e6")
+        self.channel_vars = [tk.BooleanVar(value=True) for _ in range(8)]
 
         self._build()
 
@@ -65,7 +66,14 @@ class NpeAnalysisGui(tk.Tk):
         self._option(options, 1, 0, "Range X Min (NPE)", self.xmin_var)
         self._option(options, 1, 2, "Range X Max (NPE)", self.xmax_var)
         self._option(options, 1, 4, "TTT Clock Hz", self.clock_var)
-        ttk.Label(options, text="Run Analysis creates full-range and selected-range plots. Inspect full range first, then adjust the selected range.").grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
+
+        channel_frame = ttk.Frame(options)
+        channel_frame.grid(row=2, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        ttk.Label(channel_frame, text="Channels").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        for ch, var in enumerate(self.channel_vars):
+            ttk.Checkbutton(channel_frame, text=f"CH{ch}", variable=var).grid(row=0, column=ch + 1, sticky="w", padx=(0, 8))
+
+        ttk.Label(options, text="Run Analysis creates full-range and selected-range plots. Inspect full range first, then adjust the selected range.").grid(row=3, column=0, columnspan=6, sticky="w", pady=(6, 0))
 
         buttons = ttk.Frame(root)
         buttons.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 8))
@@ -170,6 +178,7 @@ class NpeAnalysisGui(tk.Tk):
         xmin = parse_float(self.xmin_var.get(), "Range X Min")
         xmax = parse_float(self.xmax_var.get(), "Range X Max")
         clock = parse_float(self.clock_var.get(), "TTT Clock Hz")
+        channels = [str(ch) for ch, var in enumerate(self.channel_vars) if var.get()]
 
         if gain <= 0:
             raise ValueError("Gain must be greater than 0.")
@@ -181,6 +190,8 @@ class NpeAnalysisGui(tk.Tk):
             raise ValueError("Range X Max must be -1 for full range or greater than Range X Min.")
         if clock <= 0:
             raise ValueError("TTT Clock Hz must be greater than 0.")
+        if not channels:
+            raise ValueError("Select at least one channel.")
 
         return {
             "gain": format_number(gain),
@@ -189,6 +200,7 @@ class NpeAnalysisGui(tk.Tk):
             "xmin": format_number(xmin),
             "xmax": format_number(xmax),
             "clock": format_number(clock),
+            "channels": ",".join(channels),
         }
 
     def run_analysis(self):
@@ -214,6 +226,7 @@ class NpeAnalysisGui(tk.Tk):
             "-n", "400",
             "-x", "0",
             "-X", "-1",
+            "-C", options["channels"],
             "-c", options["clock"],
         ]
 
@@ -229,6 +242,7 @@ class NpeAnalysisGui(tk.Tk):
             "-n", options["bins"],
             "-x", options["xmin"],
             "-X", options["xmax"],
+            "-C", options["channels"],
             "-c", options["clock"],
         ]
 

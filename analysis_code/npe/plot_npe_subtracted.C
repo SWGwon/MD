@@ -10,8 +10,10 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <string>
 #include <chrono>
+#include <sstream>
 
 double get_tree_quantile(TTree *tree, const TString &expr, double xmin, double xmax, double prob, const char *name) {
     if (!tree || xmax <= xmin) return xmax;
@@ -78,6 +80,31 @@ TString source_label_from_file(const char *sourceFile) {
     return TString(label.c_str());
 }
 
+std::vector<int> parse_channel_list(const char *channels, int nChannels) {
+    std::vector<int> selected;
+    TString text(channels ? channels : "");
+    text.ReplaceAll(" ", "");
+    if (text.Length() == 0) return selected;
+
+    std::stringstream stream(text.Data());
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        if (token.empty()) continue;
+        if (token.rfind("CH", 0) == 0 || token.rfind("ch", 0) == 0) token = token.substr(2);
+
+        char *end = nullptr;
+        const long channel = std::strtol(token.c_str(), &end, 10);
+        if (!end || *end != '\0' || channel < 0 || channel >= nChannels) {
+            std::cerr << "Warning: ignoring invalid channel selection '" << token << "'" << std::endl;
+            continue;
+        }
+        if (std::find(selected.begin(), selected.end(), static_cast<int>(channel)) == selected.end()) {
+            selected.push_back(static_cast<int>(channel));
+        }
+    }
+    return selected;
+}
+
 /**
  * @brief 소스 데이터에서 백그라운드를 차감한 NPE 분포를 그리는 매크로
  * 
@@ -96,6 +123,7 @@ TString source_label_from_file(const char *sourceFile) {
  * @param resistanceOhm Digitizer input impedance
  * @param adcBits      ADC bit depth
  * @param sourceLabel  Legend label for source data. Empty string derives it from sourceFile.
+ * @param selectedChannels Comma-separated channel list such as "0,1,3". Empty string auto-detects active channels.
  */
 void plot_npe_subtracted(const char* sourceFile = "source.root",
                          const char* bgFile = "background_1hr_prod.root", 
@@ -111,7 +139,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
                          double samplingTimeNs = 2.0,
                          double resistanceOhm = 50.0,
                          int adcBits = 14,
-                         const char* sourceLabel = "") {
+                         const char* sourceLabel = "",
+                         const char* selectedChannels = "") {
     const auto startTime = std::chrono::steady_clock::now();
     gStyle->SetOptStat(0); // 차감 후에는 통계 박스가 부정확할 수 있어 끔
     TString prefix(outPrefix);
@@ -156,17 +185,34 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     }
     if (nBins <= 0) nBins = 400;
 
+    std::vector<int> requestedChannels = parse_channel_list(selectedChannels, nChannels);
     std::vector<int> activeChannels;
-    for (int i = 0; i < nChannels; ++i) {
+    const bool useRequestedChannels = !requestedChannels.empty();
+    const std::vector<int> channelsToCheck = useRequestedChannels ? requestedChannels : [&]() {
+        std::vector<int> channels;
+        for (int i = 0; i < nChannels; ++i) channels.push_back(i);
+        return channels;
+    }();
+
+    for (int i : channelsToCheck) {
         TString branch = Form("Charge_CH%d", i);
-        if (!tSrc->GetBranch(branch) || !tBG->GetBranch(branch)) continue;
-        if (tSrc->GetMaximum(branch) != 0 || tBG->GetMaximum(branch) != 0) {
+        if (!tSrc->GetBranch(branch) || !tBG->GetBranch(branch)) {
+            if (useRequestedChannels) {
+                std::cerr << "Warning: selected branch " << branch << " not found in both files; skipping." << std::endl;
+            }
+            continue;
+        }
+        if (useRequestedChannels || tSrc->GetMaximum(branch) != 0 || tBG->GetMaximum(branch) != 0) {
             activeChannels.push_back(i);
         }
     }
 
     if (activeChannels.empty()) {
-        std::cerr << "Error: no active Charge_CH branches found!" << std::endl;
+        if (useRequestedChannels) {
+            std::cerr << "Error: none of the selected Charge_CH branches can be analyzed!" << std::endl;
+        } else {
+            std::cerr << "Error: no active Charge_CH branches found!" << std::endl;
+        }
         return;
     }
 
@@ -403,6 +449,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     std::cout << "Active channels:";
     for (int ch : activeChannels) std::cout << " CH" << ch;
     std::cout << std::endl;
+    if (useRequestedChannels) std::cout << "Channel selection: " << selectedChannels << std::endl;
     std::cout << "BG scale: " << bgScale << std::endl;
     std::cout << "X-axis quantile: " << xQuantile << std::endl;
     std::cout << "Bins: " << nBins << ", X range: [" << t_xmin << ", " << t_xmax << "]" << std::endl;

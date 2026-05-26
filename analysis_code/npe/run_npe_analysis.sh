@@ -24,6 +24,7 @@ Options:
   -n BINS      Histogram bins (default: 400)
   -x MIN       Manual x-axis minimum (use with -X)
   -X MAX       Manual x-axis maximum (use with -x)
+  -C LIST      Channels to analyze, comma-separated (example: 0,1,3). Default: auto-detect active channels
   -c HZ        SyncTime_TTT clock Hz (default: 125.0e6)
   -h           Show this help
 
@@ -114,8 +115,9 @@ build_root_macro_call() {
     local resistance="${14}"
     local adc_bits_value="${15}"
     local label="${16}"
+    local channels="${17}"
 
-    printf '%s(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)' \
+    printf '%s(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)' \
         "$macro" \
         "$(root_string_arg "$src")" \
         "$(root_string_arg "$bg")" \
@@ -131,7 +133,8 @@ build_root_macro_call() {
         "$sampling_ns" \
         "$resistance" \
         "$adc_bits_value" \
-        "$(root_string_arg "$label")"
+        "$(root_string_arg "$label")" \
+        "$(root_string_arg "$channels")"
 }
 
 source_file=""
@@ -148,12 +151,13 @@ x_min="0"
 x_max="-1"
 ttt_clock="125.0e6"
 source_label=""
+channels=""
 dynamic_range_v="2.0"
 sampling_time_ns="2.0"
 resistance_ohm="50.0"
 adc_bits="14"
 
-while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:c:h" opt; do
+while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:c:h" opt; do
     case "$opt" in
         s) source_file="$OPTARG" ;;
         b) bg_file="$OPTARG" ;;
@@ -167,6 +171,7 @@ while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:c:h" opt; do
         n) n_bins="$OPTARG" ;;
         x) x_min="$OPTARG" ;;
         X) x_max="$OPTARG" ;;
+        C) channels="$OPTARG" ;;
         c) ttt_clock="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) die "Option -$OPTARG requires an argument." ;;
@@ -235,6 +240,7 @@ echo "  Gain:       $gain"
 echo "  X quantile: $x_quantile"
 echo "  Bins:       $n_bins"
 echo "  X range:    [$x_min, $x_max]"
+echo "  Channels:   ${channels:-auto-detect active}"
 echo
 
 cd "$output_dir"
@@ -254,7 +260,8 @@ macro_call="$(build_root_macro_call \
     "$sampling_time_ns" \
     "$resistance_ohm" \
     "$adc_bits" \
-    "$source_label")"
+    "$source_label" \
+    "$channels")"
 root -l -b -q "$macro_call"
 
 echo
