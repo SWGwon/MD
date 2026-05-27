@@ -90,8 +90,6 @@ class NpeAnalysisGui(tk.Tk):
         self.preview_frame.grid(row=8, column=0, columnspan=3, sticky="nsew")
         self.preview_frame.columnconfigure(0, weight=1)
         self.preview_frame.columnconfigure(1, weight=1)
-        self.preview_frame.columnconfigure(2, weight=1)
-        self.preview_frame.columnconfigure(3, weight=1)
         self.preview_frame.rowconfigure(1, weight=1)
 
         ttk.Label(root, text="Log").grid(row=9, column=0, sticky="w", pady=(8, 0))
@@ -315,18 +313,25 @@ class NpeAnalysisGui(tk.Tk):
 
         labels = ["Full range", "Selected range"]
         for col, path in enumerate(getattr(self, "result_paths", [])):
-            base_col = col * 2
-            ttk.Label(self.preview_frame, text=f"{labels[col]}: {path.name}").grid(row=0, column=base_col, sticky="w")
+            pane = ttk.Frame(self.preview_frame)
+            pane.grid(row=0, column=col, sticky="nsew", padx=(0, 12))
+            pane.columnconfigure(0, weight=1)
+            pane.rowconfigure(1, weight=1)
+
+            header = ttk.Frame(pane)
+            header.grid(row=0, column=0, sticky="ew")
+            header.columnconfigure(0, weight=1)
+            ttk.Label(header, text=f"{labels[col]}: {path.name}").grid(row=0, column=0, sticky="w")
             if not path.exists():
-                ttk.Label(self.preview_frame, text="Image not found").grid(row=1, column=base_col, sticky="nsew")
+                ttk.Label(pane, text="Image not found").grid(row=1, column=0, sticky="nsew")
                 continue
             image = tk.PhotoImage(file=str(path))
             factor = max(1, math.ceil(max(image.width() / 520, image.height() / 380)))
             if factor > 1:
                 image = image.subsample(factor, factor)
             self.preview_images.append(image)
-            ttk.Button(self.preview_frame, text="Open Full Size", command=lambda p=path: self.open_image_window(p)).grid(row=0, column=base_col + 1, sticky="e", padx=(8, 8))
-            ttk.Label(self.preview_frame, image=image).grid(row=1, column=base_col, columnspan=2, sticky="nsew", padx=(0, 12))
+            ttk.Button(header, text="Open Full Image", command=lambda p=path: self.open_image_window(p)).grid(row=0, column=1, sticky="e", padx=(8, 0))
+            ttk.Label(pane, image=image).grid(row=1, column=0, sticky="nsew")
 
     def open_image_window(self, path):
         if not path.exists():
