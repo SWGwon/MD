@@ -46,7 +46,7 @@ class NpeAnalysisGui(tk.Tk):
         root.rowconfigure(10, weight=1)
 
         self._file_row(root, 0, "Source ROOT", self.source_var, self.pick_source)
-        self._file_row(root, 1, "Background ROOT", self.bg_var, self.pick_background)
+        self._file_row(root, 1, "Background ROOT (optional)", self.bg_var, self.pick_background)
         self._file_row(root, 2, "Output Dir", self.out_dir_var, self.pick_output_dir)
 
         ttk.Label(root, text="Output Prefix").grid(row=3, column=0, sticky="w", pady=4)
@@ -157,7 +157,7 @@ class NpeAnalysisGui(tk.Tk):
         if not self.source_var.get() or not Path(self.source_var.get()).is_file():
             messagebox.showerror("Missing source", "Select a valid source ROOT file.")
             return False
-        if not self.bg_var.get() or not Path(self.bg_var.get()).is_file():
+        if self.bg_var.get().strip() and not Path(self.bg_var.get()).is_file():
             messagebox.showerror("Missing background", "Select a valid background ROOT file.")
             return False
         if not self.prefix_var.get().strip():
@@ -217,7 +217,6 @@ class NpeAnalysisGui(tk.Tk):
         full_cmd = [
             str(WRAPPER),
             "-s", self.source_var.get(),
-            "-b", self.bg_var.get(),
             "-O", self.out_dir_var.get(),
             "-o", full_prefix,
             "-L", self.source_label_var.get().strip(),
@@ -233,7 +232,6 @@ class NpeAnalysisGui(tk.Tk):
         range_cmd = [
             str(WRAPPER),
             "-s", self.source_var.get(),
-            "-b", self.bg_var.get(),
             "-O", self.out_dir_var.get(),
             "-o", range_prefix,
             "-L", self.source_label_var.get().strip(),
@@ -245,6 +243,10 @@ class NpeAnalysisGui(tk.Tk):
             "-C", options["channels"],
             "-c", options["clock"],
         ]
+        bg_path = self.bg_var.get().strip()
+        if bg_path:
+            full_cmd[3:3] = ["-b", bg_path]
+            range_cmd[3:3] = ["-b", bg_path]
 
         commands = [("full range", full_cmd), ("selected range", range_cmd)]
         self.result_paths = [

@@ -9,11 +9,11 @@ usage() {
     cat <<'EOF'
 Usage:
   ./run_npe_analysis.sh
-  ./run_npe_analysis.sh -s SOURCE.root -b BACKGROUND.root -o PREFIX [options]
+  ./run_npe_analysis.sh -s SOURCE.root [-b BACKGROUND.root] -o PREFIX [options]
 
 Options:
   -s FILE      Source ROOT file
-  -b FILE      Background ROOT file
+  -b FILE      Background ROOT file. Omit or pass an empty value for source-only histograms
   -d DIR       Data directory used for interactive file selection
   -o PREFIX    Output PNG prefix
   -O DIR       Output directory for generated PNG files
@@ -31,6 +31,7 @@ Options:
 Examples:
   ./run_npe_analysis.sh
   ./run_npe_analysis.sh -s source.root -b background.root -o source_run
+  ./run_npe_analysis.sh -s source.root -o source_only
   ./run_npe_analysis.sh -s source.root -b background.root -o zoom -x 0 -X 200000
   ~/MD/analysis_code/run_npe_analysis.sh -d ~/MD/data/run1 -s source.root -b bg.root -O ~/MD/plots -o source_run
 EOF
@@ -139,6 +140,7 @@ build_root_macro_call() {
 
 source_file=""
 bg_file=""
+bg_option_seen=0
 data_dir="$START_DIR"
 out_prefix=""
 output_dir="$REPO_DIR/results"
@@ -160,7 +162,7 @@ adc_bits="14"
 while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:c:h" opt; do
     case "$opt" in
         s) source_file="$OPTARG" ;;
-        b) bg_file="$OPTARG" ;;
+        b) bg_file="$OPTARG"; bg_option_seen=1 ;;
         d) data_dir="$OPTARG" ;;
         o) out_prefix="$OPTARG" ;;
         O) output_dir="$OPTARG" ;;
@@ -186,12 +188,14 @@ output_dir="$(abs_dir "$output_dir")"
 [[ -f "$macro_file" ]] || die "ROOT macro not found: $macro_file"
 command -v root >/dev/null 2>&1 || die "ROOT command 'root' not found in PATH"
 
-if [[ -z "$source_file" || -z "$bg_file" ]]; then
+if [[ -z "$source_file" || ( -z "$bg_file" && "$bg_option_seen" -eq 0 && -t 0 && "$#" -eq 0 ) ]]; then
     mapfile -t root_files < <(find "$data_dir" -maxdepth 1 -type f -name '*.root' -printf '%f\n' | sort)
     (( ${#root_files[@]} > 0 )) || die "No ROOT files found in $data_dir"
 
     [[ -n "$source_file" ]] || source_file="$(pick_root_file "source" "${root_files[@]}")"
-    [[ -n "$bg_file" ]] || bg_file="$(pick_root_file "background" "${root_files[@]}")"
+    if [[ -z "$bg_file" && "$bg_option_seen" -eq 0 && -t 0 && "$#" -eq 0 ]]; then
+        bg_file="$(pick_root_file "background" "${root_files[@]}")"
+    fi
 fi
 
 if [[ "$source_file" != /* ]]; then
@@ -201,7 +205,7 @@ if [[ "$source_file" != /* ]]; then
         source_file="$(abs_path "$source_file")"
     fi
 fi
-if [[ "$bg_file" != /* ]]; then
+if [[ -n "$bg_file" && "$bg_file" != /* ]]; then
     if [[ -f "$data_dir/$bg_file" ]]; then
         bg_file="$data_dir/$bg_file"
     else
@@ -210,7 +214,9 @@ if [[ "$bg_file" != /* ]]; then
 fi
 
 [[ -f "$source_file" ]] || die "Source file not found: $source_file"
-[[ -f "$bg_file" ]] || die "Background file not found: $bg_file"
+if [[ -n "$bg_file" ]]; then
+    [[ -f "$bg_file" ]] || die "Background file not found: $bg_file"
+fi
 
 if [[ -z "$out_prefix" ]]; then
     base="$(basename "${source_file%.root}")"
@@ -233,7 +239,7 @@ echo "  Macro:      $macro_file"
 echo "  Data dir:   $data_dir"
 echo "  Output dir: $output_dir"
 echo "  Source:     $source_file"
-echo "  Background: $bg_file"
+echo "  Background: ${bg_file:-none}"
 echo "  Prefix:     $out_prefix"
 echo "  Label:      ${source_label:-source file name}"
 echo "  Gain:       $gain"

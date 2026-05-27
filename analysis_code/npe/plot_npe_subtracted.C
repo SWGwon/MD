@@ -109,7 +109,7 @@ std::vector<int> parse_channel_list(const char *channels, int nChannels) {
  * @brief 소스 데이터에서 백그라운드를 차감한 NPE 분포를 그리는 매크로
  * 
  * @param sourceFile  Source data ROOT file
- * @param bgFile      백그라운드 데이터 파일 (예: background_1hr_prod.root)
+ * @param bgFile      백그라운드 데이터 파일. Empty string runs source-only mode.
  * @param gain        PMT Gain 값 (기본값: 10^7)
  * @param bgScale     BG 스케일. 0보다 작으면 SyncTime_TTT span 비율로 자동 계산
  * @param xQuantile   x축 상한에 사용할 quantile. 기본값 1은 전체 범위 사용
@@ -146,20 +146,22 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     TString prefix(outPrefix);
     TString srcLabel(sourceLabel);
     if (srcLabel.Length() == 0) srcLabel = source_label_from_file(sourceFile);
+    TString bgPath(bgFile ? bgFile : "");
+    const bool hasBackground = bgPath.Length() > 0;
 
     // 1. 파일 열기
     TFile *fSrc = TFile::Open(sourceFile);
-    TFile *fBG = TFile::Open(bgFile);
+    TFile *fBG = hasBackground ? TFile::Open(bgFile) : nullptr;
 
-    if (!fSrc || fSrc->IsZombie() || !fBG || fBG->IsZombie()) {
+    if (!fSrc || fSrc->IsZombie() || (hasBackground && (!fBG || fBG->IsZombie()))) {
         std::cerr << "Error opening files!" << std::endl;
         return;
     }
 
     TTree *tSrc = (TTree*)fSrc->Get("phys_tree");
-    TTree *tBG = (TTree*)fBG->Get("phys_tree");
+    TTree *tBG = hasBackground ? (TTree*)fBG->Get("phys_tree") : nullptr;
 
-    if (!tSrc || !tBG) {
+    if (!tSrc || (hasBackground && !tBG)) {
         std::cerr << "Error: 'phys_tree' not found in one of the files!" << std::endl;
         return;
     }
@@ -170,13 +172,15 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     TString npe_conv = Form("* %e", adcIntegralToNPE);
     const int nChannels = 8;
     configure_tree_cache(tSrc, nChannels);
-    configure_tree_cache(tBG, nChannels);
+    if (hasBackground) configure_tree_cache(tBG, nChannels);
     const double srcLiveSeconds = get_live_seconds(tSrc, tttClockHz);
-    const double bgLiveSeconds = get_live_seconds(tBG, tttClockHz);
+    const double bgLiveSeconds = hasBackground ? get_live_seconds(tBG, tttClockHz) : 0.0;
     const double srcRate = srcLiveSeconds > 0 ? tSrc->GetEntries() / srcLiveSeconds : 0.0;
     const double bgRate = bgLiveSeconds > 0 ? tBG->GetEntries() / bgLiveSeconds : 0.0;
 
-    if (bgScale < 0) {
+    if (!hasBackground) {
+        bgScale = 0.0;
+    } else if (bgScale < 0) {
         if (srcLiveSeconds > 0 && bgLiveSeconds > 0) {
             bgScale = srcLiveSeconds / bgLiveSeconds;
         } else {
@@ -196,13 +200,13 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
 
     for (int i : channelsToCheck) {
         TString branch = Form("Charge_CH%d", i);
-        if (!tSrc->GetBranch(branch) || !tBG->GetBranch(branch)) {
+        if (!tSrc->GetBranch(branch) || (hasBackground && !tBG->GetBranch(branch))) {
             if (useRequestedChannels) {
-                std::cerr << "Warning: selected branch " << branch << " not found in both files; skipping." << std::endl;
+                std::cerr << "Warning: selected branch " << branch << " not found in required input files; skipping." << std::endl;
             }
             continue;
         }
-        if (useRequestedChannels || tSrc->GetMaximum(branch) != 0 || tBG->GetMaximum(branch) != 0) {
+        if (useRequestedChannels || tSrc->GetMaximum(branch) != 0 || (hasBackground && tBG->GetMaximum(branch) != 0)) {
             activeChannels.push_back(i);
         }
     }
@@ -218,11 +222,11 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
 
     std::vector<TH1D*> histogramsToWrite;
 
-    // --- 채널별 차감 분포 ---
-    TCanvas *c_sub = new TCanvas("c_sub", Form("Background Subtracted NPE (Gain=%.1e)", gain), 1200, 600);
+    // --- 채널별 분포 ---
+    TCanvas *c_sub = new TCanvas("c_sub", Form("%s NPE (Gain=%.1e)", hasBackground ? "Background Subtracted" : "Source Only", gain), 1200, 600);
     c_sub->Divide(static_cast<int>(activeChannels.size()), 1);
 
-    TCanvas *c_overlay_ch = new TCanvas("c_overlay_ch", Form("Source vs Background per Channel (Gain=%.1e)", gain), 1200, 600);
+    TCanvas *c_overlay_ch = new TCanvas("c_overlay_ch", Form("%s per Channel (Gain=%.1e)", hasBackground ? "Source vs Background" : "Source", gain), 1200, 600);
     c_overlay_ch->Divide(static_cast<int>(activeChannels.size()), 1);
 
     TString total_expr_raw = "(";
@@ -238,8 +242,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
 
         rawSrcMins[idx] = tSrc->GetMinimum(branch);
         rawSrcMaxs[idx] = tSrc->GetMaximum(branch);
-        rawBgMins[idx] = tBG->GetMinimum(branch);
-        rawBgMaxs[idx] = tBG->GetMaximum(branch);
+        rawBgMins[idx] = hasBackground ? tBG->GetMinimum(branch) : rawSrcMins[idx];
+        rawBgMaxs[idx] = hasBackground ? tBG->GetMaximum(branch) : rawSrcMaxs[idx];
         const double srcMin = rawSrcMins[idx] * adcIntegralToNPE;
         const double srcMax = rawSrcMaxs[idx] * adcIntegralToNPE;
         const double bgMin = rawBgMins[idx] * adcIntegralToNPE;
@@ -249,7 +253,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         if (xmin == xmax) xmax = xmin + 1.0;
         if (xQuantile > 0 && xQuantile < 1) {
             const double srcQ = get_tree_quantile(tSrc, npeExpr, xmin, xmax, xQuantile, Form("src_ch%d", i));
-            const double bgQ = get_tree_quantile(tBG, npeExpr, xmin, xmax, xQuantile, Form("bg_ch%d", i));
+            const double bgQ = hasBackground ? get_tree_quantile(tBG, npeExpr, xmin, xmax, xQuantile, Form("bg_ch%d", i)) : srcQ;
             xmax = std::max(srcQ, bgQ);
             if (xmax <= xmin) xmax = std::max(srcMax, bgMax);
         }
@@ -258,33 +262,40 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
             xmax = xMaxUser;
         }
 
-        // 히스토그램 생성 (Source, BG, Subtracted)
+        // 히스토그램 생성 (Source, optional BG, display)
         TH1D *hSrc = new TH1D(Form("hSrc_ch%d", i), "", nBins, xmin, xmax);
-        TH1D *hBG = new TH1D(Form("hBG_ch%d", i), "", nBins, xmin, xmax);
+        TH1D *hBG = hasBackground ? new TH1D(Form("hBG_ch%d", i), "", nBins, xmin, xmax) : nullptr;
         
         tSrc->Project(hSrc->GetName(), npeExpr);
-        tBG->Project(hBG->GetName(), npeExpr);
-        hBG->Scale(bgScale);
-        style_source_bg(hSrc, hBG);
+        if (hasBackground) {
+            tBG->Project(hBG->GetName(), npeExpr);
+            hBG->Scale(bgScale);
+            style_source_bg(hSrc, hBG);
+        } else {
+            hSrc->SetLineColor(kBlue + 1);
+            hSrc->SetLineWidth(2);
+            hSrc->SetFillStyle(0);
+        }
 
-        // 차감용 히스토그램 (Source 복사 후 BG 차감)
-        TH1D *hSub = (TH1D*)hSrc->Clone(Form("hSub_ch%d", i));
-        hSub->SetTitle(Form("CH%d: Source - %.3g #times BG;NPE;Counts", i, bgScale));
-        hSub->Add(hBG, -1.0);
+        TH1D *hSub = (TH1D*)hSrc->Clone(hasBackground ? Form("hSub_ch%d", i) : Form("hSourceOnly_ch%d", i));
+        hSub->SetTitle(hasBackground ? Form("CH%d: Source - %.3g #times BG;NPE;Counts", i, bgScale)
+                                     : Form("CH%d: Source only;NPE;Counts", i));
+        if (hasBackground) hSub->Add(hBG, -1.0);
         histogramsToWrite.push_back(hSrc);
-        histogramsToWrite.push_back(hBG);
+        if (hBG) histogramsToWrite.push_back(hBG);
         histogramsToWrite.push_back(hSub);
 
         c_overlay_ch->cd(static_cast<int>(idx) + 1);
         gPad->SetLogy();
-        hSrc->SetTitle(Form("CH%d: Source vs scaled BG;NPE;Counts", i));
+        hSrc->SetTitle(hasBackground ? Form("CH%d: Source vs scaled BG;NPE;Counts", i)
+                                     : Form("CH%d: Source;NPE;Counts", i));
         hSrc->SetMinimum(0.5);
-        hSrc->SetMaximum(std::max(hSrc->GetMaximum(), hBG->GetMaximum()) * 2.0);
+        hSrc->SetMaximum((hasBackground ? std::max(hSrc->GetMaximum(), hBG->GetMaximum()) : hSrc->GetMaximum()) * 2.0);
         hSrc->Draw("HIST");
-        hBG->Draw("SAME HIST");
+        if (hasBackground) hBG->Draw("SAME HIST");
         TLegend *legCh = new TLegend(0.55, 0.72, 0.88, 0.88);
         legCh->AddEntry(hSrc, srcLabel.Data(), "l");
-        legCh->AddEntry(hBG, Form("BG #times %.3g", bgScale), "l");
+        if (hasBackground) legCh->AddEntry(hBG, Form("BG #times %.3g", bgScale), "l");
         legCh->Draw();
 
         const double yMin = std::min(0.0, hSub->GetMinimum());
@@ -311,8 +322,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     c_overlay_ch->SaveAs(Form("%s_overlay_channels_log.png", prefix.Data()));
     c_sub->SaveAs(Form("%s_subtracted_channels.png", prefix.Data()));
 
-    // --- 전체 총합 차감 분포 ---
-    TCanvas *c_total_sub = new TCanvas("c_total_sub", "Total NPE Subtraction", 800, 600);
+    // --- 전체 총합 분포 ---
+    TCanvas *c_total_sub = new TCanvas("c_total_sub", hasBackground ? "Total NPE Subtraction" : "Total NPE Source Only", 800, 600);
     
     double totalRawSrcMin = 0.0;
     double totalRawSrcMax = 0.0;
@@ -329,7 +340,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     if (t_xmin == t_xmax) t_xmax = t_xmin + 1.0;
     if (xQuantile > 0 && xQuantile < 1) {
         const double srcQ = get_tree_quantile(tSrc, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_src");
-        const double bgQ = get_tree_quantile(tBG, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_bg");
+        const double bgQ = hasBackground ? get_tree_quantile(tBG, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_bg") : srcQ;
         t_xmax = std::max(srcQ, bgQ);
         if (t_xmax <= t_xmin) t_xmax = std::max(totalRawSrcMax, totalRawBgMax) * adcIntegralToNPE;
     }
@@ -339,63 +350,77 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     }
 
     TH1D *hTotalSrc = new TH1D("hTotalSrc", "Total NPE;NPE;Counts", nBins, t_xmin, t_xmax);
-    TH1D *hTotalBG = new TH1D("hTotalBG", "", nBins, t_xmin, t_xmax);
+    TH1D *hTotalBG = hasBackground ? new TH1D("hTotalBG", "", nBins, t_xmin, t_xmax) : nullptr;
     
     tSrc->Project("hTotalSrc", total_npe_expr);
-    tBG->Project("hTotalBG", total_npe_expr);
-    hTotalBG->Scale(bgScale);
-    style_source_bg(hTotalSrc, hTotalBG);
+    if (hasBackground) {
+        tBG->Project("hTotalBG", total_npe_expr);
+        hTotalBG->Scale(bgScale);
+        style_source_bg(hTotalSrc, hTotalBG);
+    } else {
+        hTotalSrc->SetLineColor(kBlue + 1);
+        hTotalSrc->SetLineWidth(2);
+        hTotalSrc->SetFillStyle(0);
+    }
 
-    TH1D *hTotalSub = (TH1D*)hTotalSrc->Clone("hTotalSub");
-    hTotalSub->SetTitle(Form("Total NPE (Source - %.3g #times BG, Gain=%.1e);NPE;Counts", bgScale, gain));
-    hTotalSub->Add(hTotalBG, -1.0);
+    TH1D *hTotalSub = (TH1D*)hTotalSrc->Clone(hasBackground ? "hTotalSub" : "hTotalSourceOnly");
+    hTotalSub->SetTitle(hasBackground ? Form("Total NPE (Source - %.3g #times BG, Gain=%.1e);NPE;Counts", bgScale, gain)
+                                      : Form("Total NPE (Source only, Gain=%.1e);NPE;Counts", gain));
+    if (hasBackground) hTotalSub->Add(hTotalBG, -1.0);
     histogramsToWrite.push_back(hTotalSrc);
-    histogramsToWrite.push_back(hTotalBG);
+    if (hTotalBG) histogramsToWrite.push_back(hTotalBG);
     histogramsToWrite.push_back(hTotalSub);
 
-    TCanvas *c_total_overlay = new TCanvas("c_total_overlay", "Total NPE Source vs Background", 900, 650);
+    TCanvas *c_total_overlay = new TCanvas("c_total_overlay", hasBackground ? "Total NPE Source vs Background" : "Total NPE Source", 900, 650);
     c_total_overlay->cd();
-    hTotalSrc->SetTitle(Form("Total NPE: Source vs scaled BG (Gain=%.1e);NPE;Counts", gain));
+    hTotalSrc->SetTitle(hasBackground ? Form("Total NPE: Source vs scaled BG (Gain=%.1e);NPE;Counts", gain)
+                                      : Form("Total NPE: Source (Gain=%.1e);NPE;Counts", gain));
     hTotalSrc->SetMinimum(0.0);
-    hTotalSrc->SetMaximum(std::max(hTotalSrc->GetMaximum(), hTotalBG->GetMaximum()) * 1.15);
+    hTotalSrc->SetMaximum((hasBackground ? std::max(hTotalSrc->GetMaximum(), hTotalBG->GetMaximum()) : hTotalSrc->GetMaximum()) * 1.15);
     hTotalSrc->Draw("HIST");
-    hTotalBG->Draw("SAME HIST");
+    if (hasBackground) hTotalBG->Draw("SAME HIST");
     TLegend *legOverlay = new TLegend(0.58, 0.72, 0.88, 0.88);
     legOverlay->AddEntry(hTotalSrc, srcLabel.Data(), "l");
-    legOverlay->AddEntry(hTotalBG, Form("BG #times %.3g", bgScale), "l");
+    if (hasBackground) legOverlay->AddEntry(hTotalBG, Form("BG #times %.3g", bgScale), "l");
     legOverlay->Draw();
     c_total_overlay->SaveAs(Form("%s_overlay_total_linear.png", prefix.Data()));
 
-    TCanvas *c_total_overlay_log = new TCanvas("c_total_overlay_log", "Total NPE Source vs Background Log", 900, 650);
+    TCanvas *c_total_overlay_log = new TCanvas("c_total_overlay_log", hasBackground ? "Total NPE Source vs Background Log" : "Total NPE Source Log", 900, 650);
     c_total_overlay_log->cd();
     gPad->SetLogy();
     hTotalSrc->SetMinimum(0.5);
-    hTotalSrc->SetMaximum(std::max(hTotalSrc->GetMaximum(), hTotalBG->GetMaximum()) * 2.0);
+    hTotalSrc->SetMaximum((hasBackground ? std::max(hTotalSrc->GetMaximum(), hTotalBG->GetMaximum()) : hTotalSrc->GetMaximum()) * 2.0);
     hTotalSrc->Draw("HIST");
-    hTotalBG->Draw("SAME HIST");
+    if (hasBackground) hTotalBG->Draw("SAME HIST");
     TLegend *legOverlayLog = new TLegend(0.58, 0.72, 0.88, 0.88);
     legOverlayLog->AddEntry(hTotalSrc, srcLabel.Data(), "l");
-    legOverlayLog->AddEntry(hTotalBG, Form("BG #times %.3g", bgScale), "l");
+    if (hasBackground) legOverlayLog->AddEntry(hTotalBG, Form("BG #times %.3g", bgScale), "l");
     legOverlayLog->Draw();
     c_total_overlay_log->SaveAs(Form("%s_overlay_total_log.png", prefix.Data()));
 
     TH1D *hTotalSrcRate = make_rate_hist(hTotalSrc, srcLiveSeconds, "hTotalSrcRate");
-    TH1D *hTotalBGRate = make_rate_hist(hTotalBG, srcLiveSeconds, "hTotalBGRate");
-    style_source_bg(hTotalSrcRate, hTotalBGRate);
+    TH1D *hTotalBGRate = hasBackground ? make_rate_hist(hTotalBG, srcLiveSeconds, "hTotalBGRate") : nullptr;
+    if (hasBackground) {
+        style_source_bg(hTotalSrcRate, hTotalBGRate);
+    } else {
+        hTotalSrcRate->SetLineColor(kBlue + 1);
+        hTotalSrcRate->SetLineWidth(2);
+    }
     histogramsToWrite.push_back(hTotalSrcRate);
-    histogramsToWrite.push_back(hTotalBGRate);
+    if (hTotalBGRate) histogramsToWrite.push_back(hTotalBGRate);
 
-    TCanvas *c_total_rate_log = new TCanvas("c_total_rate_log", "Total NPE Rate-Normalized Source vs Background", 900, 650);
+    TCanvas *c_total_rate_log = new TCanvas("c_total_rate_log", hasBackground ? "Total NPE Rate-Normalized Source vs Background" : "Total NPE Rate-Normalized Source", 900, 650);
     c_total_rate_log->cd();
     gPad->SetLogy();
-    hTotalSrcRate->SetTitle(Form("Total NPE rate density: Source vs scaled BG (Gain=%.1e);NPE;Rate [Hz / NPE]", gain));
+    hTotalSrcRate->SetTitle(hasBackground ? Form("Total NPE rate density: Source vs scaled BG (Gain=%.1e);NPE;Rate [Hz / NPE]", gain)
+                                          : Form("Total NPE rate density: Source (Gain=%.1e);NPE;Rate [Hz / NPE]", gain));
     hTotalSrcRate->SetMinimum(1e-5);
-    hTotalSrcRate->SetMaximum(std::max(hTotalSrcRate->GetMaximum(), hTotalBGRate->GetMaximum()) * 2.0);
+    hTotalSrcRate->SetMaximum((hasBackground ? std::max(hTotalSrcRate->GetMaximum(), hTotalBGRate->GetMaximum()) : hTotalSrcRate->GetMaximum()) * 2.0);
     hTotalSrcRate->Draw("HIST");
-    hTotalBGRate->Draw("SAME HIST");
+    if (hasBackground) hTotalBGRate->Draw("SAME HIST");
     TLegend *legRate = new TLegend(0.54, 0.72, 0.88, 0.88);
     legRate->AddEntry(hTotalSrcRate, Form("%s %.1f Hz", srcLabel.Data(), srcRate), "l");
-    legRate->AddEntry(hTotalBGRate, Form("BG scaled to source live time %.1f Hz", bgRate), "l");
+    if (hasBackground) legRate->AddEntry(hTotalBGRate, Form("BG scaled to source live time %.1f Hz", bgRate), "l");
     legRate->Draw();
     c_total_rate_log->SaveAs(Form("%s_overlay_total_rate_log.png", prefix.Data()));
 
@@ -415,7 +440,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     zeroTotal->Draw("SAME");
 
     TLegend *leg = new TLegend(0.6, 0.7, 0.88, 0.88);
-    leg->AddEntry(hTotalSub, "Source - scaled BG", "l");
+    leg->AddEntry(hTotalSub, hasBackground ? "Source - scaled BG" : srcLabel.Data(), "l");
     leg->Draw();
 
     c_total_sub->SaveAs(Form("%s_subtracted_total.png", prefix.Data()));
@@ -432,25 +457,30 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         fHistOut->Close();
     }
 
-    std::cout << "\n--- Background Subtraction Complete ---" << std::endl;
+    std::cout << "\n--- " << (hasBackground ? "Background Subtraction" : "Source-Only Histogram") << " Complete ---" << std::endl;
     std::cout << "Source: " << sourceFile << std::endl;
     std::cout << "Source label: " << srcLabel << std::endl;
-    std::cout << "BG: " << bgFile << std::endl;
+    std::cout << "BG: " << (hasBackground ? bgFile : "none") << std::endl;
     std::cout << "Charge_CH unit: ADC-count sample integral from DAQ production_dt5730.cpp" << std::endl;
     std::cout << "ADC integral to pC: " << adcIntegralToPC << " pC / (ADC count * sample)" << std::endl;
     std::cout << "Conversion: NPE = Charge_CH " << npe_conv << std::endl;
     std::cout << "Conversion constants: dynamicRange=" << dynamicRangeV << " V, sampling="
               << samplingTimeNs << " ns, R=" << resistanceOhm << " ohm, ADC bits=" << adcBits
               << ", gain=" << gain << std::endl;
-    std::cout << "Entries: source=" << tSrc->GetEntries() << ", BG=" << tBG->GetEntries() << std::endl;
-    std::cout << "Live time [s]: source=" << srcLiveSeconds << ", BG=" << bgLiveSeconds << std::endl;
-    std::cout << "Trigger rate [Hz]: source=" << srcRate << ", BG=" << bgRate
-              << ", excess=" << (srcRate - bgRate) << std::endl;
+    std::cout << "Entries: source=" << tSrc->GetEntries();
+    if (hasBackground) std::cout << ", BG=" << tBG->GetEntries();
+    std::cout << std::endl;
+    std::cout << "Live time [s]: source=" << srcLiveSeconds;
+    if (hasBackground) std::cout << ", BG=" << bgLiveSeconds;
+    std::cout << std::endl;
+    std::cout << "Trigger rate [Hz]: source=" << srcRate;
+    if (hasBackground) std::cout << ", BG=" << bgRate << ", excess=" << (srcRate - bgRate);
+    std::cout << std::endl;
     std::cout << "Active channels:";
     for (int ch : activeChannels) std::cout << " CH" << ch;
     std::cout << std::endl;
     if (useRequestedChannels) std::cout << "Channel selection: " << selectedChannels << std::endl;
-    std::cout << "BG scale: " << bgScale << std::endl;
+    if (hasBackground) std::cout << "BG scale: " << bgScale << std::endl;
     std::cout << "X-axis quantile: " << xQuantile << std::endl;
     std::cout << "Bins: " << nBins << ", X range: [" << t_xmin << ", " << t_xmax << "]" << std::endl;
     std::cout << "Output prefix: " << prefix << std::endl;
