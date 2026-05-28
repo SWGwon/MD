@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MACRO_FILE="$SCRIPT_DIR/plot_npe_subtracted.C"
+MACRO_FILE="$SCRIPT_DIR/plot_compton_edge.C"
 
 ok() {
     echo "[OK] $*"
@@ -31,7 +31,7 @@ if sys.version_info < (3, 10):
     raise SystemExit("Python 3.10 or newer is required.")
 
 if importlib.util.find_spec("tkinter") is None:
-    print("[WARN] tkinter: unavailable; run_npe_gui.sh will use the browser GUI fallback.")
+    print("[WARN] tkinter: unavailable; run_compton_edge_gui.sh will use the browser GUI fallback.")
 else:
     print("[OK] tkinter: available")
 PY
@@ -49,11 +49,11 @@ else
     warn "root-config not found; ROOT is available but version detection is limited."
 fi
 
-[[ -f "$MACRO_FILE" ]] || fail "NPE ROOT macro not found: $MACRO_FILE"
+[[ -f "$MACRO_FILE" ]] || fail "Compton-edge ROOT macro not found: $MACRO_FILE"
 
-root -l -b -q "$MACRO_FILE(\"/tmp/md_missing_source.root\",\"/tmp/md_missing_bg.root\",1.0e7,-1,1.0,400,0,-1,125.0e6,\"env_check\")" >/tmp/md_npe_root_check.log 2>&1 || {
-    cat /tmp/md_npe_root_check.log >&2
-    fail "ROOT failed to load the NPE macro."
+root -l -b -q "$MACRO_FILE(\"/tmp/md_missing_source.root\",\"/tmp/md_missing_bg.root\",1.0e7,-1,1.0,400,0,-1,125.0e6,\"env_check\")" >/tmp/md_compton_edge_root_check.log 2>&1 || {
+    cat /tmp/md_compton_edge_root_check.log >&2
+    fail "ROOT failed to load the Compton-edge macro."
 }
 ok "ROOT macro loads: $MACRO_FILE"
 

@@ -7,7 +7,7 @@ ROOT-based analysis tools and experiment-specific macros for PMT/liquid-scintill
 ```text
 analysis_code/
   view_waveforms.C      # General waveform viewer
-  npe/                  # Cs137 NPE/background-subtraction analysis tool
+  compton_edge/         # Cs137 source/background Compton-edge analysis tool
   reflection_legacy/    # Older reflection-test helper macros kept for reference
   spe/                  # SPE calibration macros
 
@@ -32,12 +32,12 @@ Large or generated files are intentionally not tracked:
 
 Keep reproducible analysis code in `analysis_code/`, and keep raw/processed run files under `data/` or another external data directory.
 
-## Cs137 NPE Analysis
+## Cs137 Compton Edge Analysis
 
 The current user-facing analysis entry point is:
 
 ```bash
-analysis_code/npe/run_npe_gui.sh
+analysis_code/compton_edge/run_compton_edge_gui.sh
 ```
 
 It automatically uses the Tkinter desktop GUI when available, otherwise it falls back to a browser-based GUI that only needs standard Python.
@@ -45,7 +45,7 @@ It automatically uses the Tkinter desktop GUI when available, otherwise it falls
 Command-line usage is also available:
 
 ```bash
-analysis_code/npe/run_npe_analysis.sh \
+analysis_code/compton_edge/run_compton_edge_analysis.sh \
   -d /path/to/data \
   -s source.root \
   -b background.root \
@@ -53,4 +53,4 @@ analysis_code/npe/run_npe_analysis.sh \
   -o run_prefix
 ```
 
-See [analysis_code/npe/README.md](analysis_code/npe/README.md) for details.
+See [analysis_code/compton_edge/README.md](analysis_code/compton_edge/README.md) for details.

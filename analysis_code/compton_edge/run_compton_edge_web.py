@@ -9,7 +9,7 @@ import sys
 
 APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parents[1]
-WRAPPER = APP_DIR / "run_npe_analysis.sh"
+WRAPPER = APP_DIR / "run_compton_edge_analysis.sh"
 DEFAULT_DATA_DIR = REPO_DIR / "data"
 DEFAULT_OUT_DIR = REPO_DIR / "results"
 IMAGE_REGISTRY = {}
@@ -48,7 +48,7 @@ def page(data=None, log="", images=None):
 <html>
 <head>
   <meta charset="utf-8">
-  <title>NPE Analysis</title>
+  <title>Compton Edge Analysis</title>
   <style>
     body {{ font-family: sans-serif; margin: 24px; max-width: 1120px; }}
     label {{ display: block; font-weight: 600; margin: 12px 0 4px; }}
@@ -65,7 +65,7 @@ def page(data=None, log="", images=None):
   </style>
 </head>
 <body>
-  <h1>NPE Analysis</h1>
+  <h1>Compton Edge Analysis</h1>
   {error_section(log)}
   <form method="post" action="/run">
     <label>Data directory</label>
@@ -85,7 +85,7 @@ def page(data=None, log="", images=None):
     <input name="out_dir" value="{escape(out_dir, quote=True)}">
 
     <label>Output prefix</label>
-    <input name="prefix" value="{val("prefix", "npe")}">
+    <input name="prefix" value="{val("prefix", "compton_edge")}">
 
     <label>Source label</label>
     <input name="source_label" value="{val("source_label", default_source_label)}">
@@ -178,7 +178,7 @@ class Handler(BaseHTTPRequestHandler):
         source = data_dir / data.get("source", "")
         bg = data_dir / data.get("background", "")
         out_dir.mkdir(parents=True, exist_ok=True)
-        base_prefix = data.get("prefix", "npe")
+        base_prefix = data.get("prefix", "compton_edge")
         source_label = data.get("source_label", "")
         try:
             options = validated_options(data)

@@ -1,15 +1,15 @@
-# NPE Analysis Tool
+# Compton Edge Analysis Tool
 
-This directory contains the liquid-scintillator NPE comparison workflow.
+This directory contains the Cs137 source/background Compton-edge workflow built from liquid-scintillator NPE spectra.
 
 ## Files
 
 ```text
-plot_npe_subtracted.C   ROOT macro that builds source/BG overlays and subtraction plots
-run_npe_analysis.sh     Command-line wrapper around the ROOT macro
-run_npe_gui.sh          Recommended GUI launcher
-run_npe_gui.py          Tkinter desktop GUI
-run_npe_web.py          Browser GUI fallback, no external Python packages
+plot_compton_edge.C   ROOT macro that builds source/BG overlays and subtraction plots
+run_compton_edge_analysis.sh     Command-line wrapper around the ROOT macro
+run_compton_edge_gui.sh          Recommended GUI launcher
+run_compton_edge_gui.py          Tkinter desktop GUI
+run_compton_edge_web.py          Browser GUI fallback, no external Python packages
 check_env.sh            Checks Python, Tkinter, ROOT, and ROOT macro loading
 setup_env.sh            Optional environment check/venv helper
 ```
@@ -22,13 +22,13 @@ Recommended runtime:
 ROOT    6.36 stable series for reproducible analysis
 Python  3.10 or newer
 Bash    4 or newer
-Tkinter optional; without it, run_npe_gui.sh uses the browser GUI fallback
+Tkinter optional; without it, run_compton_edge_gui.sh uses the browser GUI fallback
 ```
 
 Check the local environment before analyzing data:
 
 ```bash
-analysis_code/npe/check_env.sh
+analysis_code/compton_edge/check_env.sh
 ```
 
 If Tkinter is missing, install the OS package such as `python3-tk` on Ubuntu/Debian. ROOT must be available as the `root` command in `PATH`.
@@ -38,7 +38,7 @@ If Tkinter is missing, install the OS package such as `python3-tk` on Ubuntu/Deb
 From the repository root:
 
 ```bash
-analysis_code/npe/run_npe_gui.sh
+analysis_code/compton_edge/run_compton_edge_gui.sh
 ```
 
 If Tkinter is available, a desktop GUI opens. If not, the launcher starts a local browser GUI and prints a URL like:
@@ -64,7 +64,7 @@ By default the selected range is also full range (`X Max = -1`). Set a finite `X
 ## Command-Line Usage
 
 ```bash
-analysis_code/npe/run_npe_analysis.sh \
+analysis_code/compton_edge/run_compton_edge_analysis.sh \
   -d /path/to/data \
   -s source.root \
   -b background_1hr_prod.root \
@@ -105,12 +105,12 @@ Q[pC] = Charge_CH * 0.00488311
 NPE   = Charge_CH * 0.00304780
 ```
 
-If the digitizer range, sampling period, impedance, or ADC bit depth changes, update the optional constants in `plot_npe_subtracted.C`.
+If the digitizer range, sampling period, impedance, or ADC bit depth changes, update the optional constants in `plot_compton_edge.C`.
 
 Example zoomed plot:
 
 ```bash
-analysis_code/npe/run_npe_analysis.sh \
+analysis_code/compton_edge/run_compton_edge_analysis.sh \
   -d /path/to/data \
   -s source.root \
   -b background_1hr_prod.root \

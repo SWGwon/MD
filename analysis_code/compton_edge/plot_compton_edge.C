@@ -183,7 +183,7 @@ TString build_threshold_selection(const std::vector<ChannelThreshold> &threshold
  * @param selectedChannels Comma-separated channel list such as "0,1,3". Empty string auto-detects active channels.
  * @param channelThresholds Comma-separated NPE cuts such as "0:5,1:5". All cuts must pass for an event.
  */
-void plot_npe_subtracted(const char* sourceFile = "source.root",
+void plot_compton_edge(const char* sourceFile = "source.root",
                          const char* bgFile = "background_1hr_prod.root", 
                          double gain = 1.0e7,
                          double bgScale = -1.0,
@@ -192,7 +192,7 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
                          double xMinUser = 0.0,
                          double xMaxUser = -1.0,
                          double tttClockHz = 125.0e6,
-                         const char* outPrefix = "npe",
+                         const char* outPrefix = "compton_edge",
                          double dynamicRangeV = 2.0,
                          double samplingTimeNs = 2.0,
                          double resistanceOhm = 50.0,

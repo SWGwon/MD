@@ -13,4 +13,4 @@ run_production_with_lead_legacy.sh
                     Historical production helper with local absolute paths
 ```
 
-For the current Cs137 source/background workflow, use `analysis_code/npe/`.
+For the current Cs137 source/background Compton-edge workflow, use `analysis_code/compton_edge/`.

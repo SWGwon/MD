@@ -52,4 +52,4 @@ fi
 
 echo
 echo "Run GUI with:"
-echo "  ./run_npe_gui.sh"
+echo "  ./run_compton_edge_gui.sh"

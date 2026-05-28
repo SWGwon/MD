@@ -21,9 +21,9 @@ import importlib.util
 raise SystemExit(0 if importlib.util.find_spec("tkinter") else 1)
 PY
 then
-    exec "$PYTHON_CMD" "$SCRIPT_DIR/run_npe_gui.py"
+    exec "$PYTHON_CMD" "$SCRIPT_DIR/run_compton_edge_gui.py"
 else
     echo "Tkinter is not available. Starting the browser-based GUI instead."
     echo "Install python3-tk later if you want the desktop GUI."
-    exec "$PYTHON_CMD" "$SCRIPT_DIR/run_npe_web.py"
+    exec "$PYTHON_CMD" "$SCRIPT_DIR/run_compton_edge_web.py"
 fi

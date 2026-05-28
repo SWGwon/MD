@@ -8,8 +8,8 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 usage() {
     cat <<'EOF'
 Usage:
-  ./run_npe_analysis.sh
-  ./run_npe_analysis.sh -s SOURCE.root [-b BACKGROUND.root] -o PREFIX [options]
+  ./run_compton_edge_analysis.sh
+  ./run_compton_edge_analysis.sh -s SOURCE.root [-b BACKGROUND.root] -o PREFIX [options]
 
 Options:
   -s FILE      Source ROOT file
@@ -18,7 +18,7 @@ Options:
   -o PREFIX    Output PNG prefix
   -O DIR       Output directory for generated PNG files
   -L LABEL     Source label shown in plot legends (default: source file name)
-  -m FILE      ROOT macro path (default: plot_npe_subtracted.C next to this script)
+  -m FILE      ROOT macro path (default: plot_compton_edge.C next to this script)
   -g GAIN      PMT gain (default: 1.0e7)
   -q QUANTILE  X-axis quantile, 1.0 means full range (default: 1.0)
   -n BINS      Histogram bins (default: 400)
@@ -30,11 +30,11 @@ Options:
   -h           Show this help
 
 Examples:
-  ./run_npe_analysis.sh
-  ./run_npe_analysis.sh -s source.root -b background.root -o source_run
-  ./run_npe_analysis.sh -s source.root -o source_only
-  ./run_npe_analysis.sh -s source.root -b background.root -o zoom -x 0 -X 200000
-  ~/MD/analysis_code/run_npe_analysis.sh -d ~/MD/data/run1 -s source.root -b bg.root -O ~/MD/plots -o source_run
+  ./run_compton_edge_analysis.sh
+  ./run_compton_edge_analysis.sh -s source.root -b background.root -o source_run
+  ./run_compton_edge_analysis.sh -s source.root -o source_only
+  ./run_compton_edge_analysis.sh -s source.root -b background.root -o zoom -x 0 -X 200000
+  ~/MD/analysis_code/compton_edge/run_compton_edge_analysis.sh -d ~/MD/data/run1 -s source.root -b bg.root -O ~/MD/plots -o source_run
 EOF
 }
 
@@ -147,7 +147,7 @@ bg_option_seen=0
 data_dir="$START_DIR"
 out_prefix=""
 output_dir="$REPO_DIR/results"
-macro_file="$SCRIPT_DIR/plot_npe_subtracted.C"
+macro_file="$SCRIPT_DIR/plot_compton_edge.C"
 gain="1.0e7"
 bg_scale="-1"
 x_quantile="1.0"
@@ -239,7 +239,7 @@ if [[ -t 0 && "$#" -eq 0 ]]; then
 fi
 
 echo
-echo "Running NPE analysis"
+echo "Running Compton edge analysis"
 echo "  Macro:      $macro_file"
 echo "  Data dir:   $data_dir"
 echo "  Output dir: $output_dir"

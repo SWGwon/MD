@@ -11,13 +11,13 @@ APP_DIR = Path(__file__).resolve().parent
 REPO_DIR = APP_DIR.parents[1]
 DEFAULT_DATA_DIR = REPO_DIR / "data"
 DEFAULT_OUT_DIR = REPO_DIR / "results"
-WRAPPER = APP_DIR / "run_npe_analysis.sh"
+WRAPPER = APP_DIR / "run_compton_edge_analysis.sh"
 
 
-class NpeAnalysisGui(tk.Tk):
+class ComptonEdgeAnalysisGui(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("NPE Analysis")
+        self.title("Compton Edge Analysis")
         self.geometry("1180x820")
         self.minsize(1040, 740)
         self.process = None
@@ -26,7 +26,7 @@ class NpeAnalysisGui(tk.Tk):
         self.source_var = tk.StringVar()
         self.bg_var = tk.StringVar()
         self.out_dir_var = tk.StringVar(value=str(DEFAULT_OUT_DIR))
-        self.prefix_var = tk.StringVar(value="npe")
+        self.prefix_var = tk.StringVar(value="compton_edge")
         self.source_label_var = tk.StringVar()
         self.gain_var = tk.StringVar(value="1.0e7")
         self.quantile_var = tk.StringVar(value="1.0")
@@ -134,7 +134,7 @@ class NpeAnalysisGui(tk.Tk):
         )
         if path:
             self.source_var.set(path)
-            if self.prefix_var.get() in {"", "npe"}:
+            if self.prefix_var.get() in {"", "npe", "compton_edge"}:
                 self.prefix_var.set(Path(path).stem)
             if not self.source_label_var.get().strip():
                 self.source_label_var.set(Path(path).stem)
@@ -412,5 +412,5 @@ def format_number(value):
 
 
 if __name__ == "__main__":
-    app = NpeAnalysisGui()
+    app = ComptonEdgeAnalysisGui()
     app.mainloop()
