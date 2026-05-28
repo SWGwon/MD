@@ -35,6 +35,7 @@ class NpeAnalysisGui(tk.Tk):
         self.xmax_var = tk.StringVar(value="-1")
         self.clock_var = tk.StringVar(value="125.0e6")
         self.channel_vars = [tk.BooleanVar(value=True) for _ in range(8)]
+        self.threshold_vars = [tk.StringVar() for _ in range(8)]
 
         self._build()
 
@@ -73,7 +74,16 @@ class NpeAnalysisGui(tk.Tk):
         for ch, var in enumerate(self.channel_vars):
             ttk.Checkbutton(channel_frame, text=f"CH{ch}", variable=var).grid(row=0, column=ch + 1, sticky="w", padx=(0, 8))
 
-        ttk.Label(options, text="Run Analysis creates full-range and selected-range plots. Inspect full range first, then adjust the selected range.").grid(row=3, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        threshold_frame = ttk.Frame(options)
+        threshold_frame.grid(row=3, column=0, columnspan=6, sticky="w", pady=(6, 0))
+        ttk.Label(threshold_frame, text="Min NPE").grid(row=0, column=0, sticky="w", padx=(0, 8))
+        for ch, var in enumerate(self.threshold_vars):
+            cell = ttk.Frame(threshold_frame)
+            cell.grid(row=0, column=ch + 1, sticky="w", padx=(0, 8))
+            ttk.Label(cell, text=f"CH{ch}").grid(row=0, column=0, sticky="w")
+            ttk.Entry(cell, textvariable=var, width=6).grid(row=1, column=0, sticky="w")
+
+        ttk.Label(options, text="Run Analysis creates full-range and selected-range plots. Inspect full range first, then adjust the selected range.").grid(row=4, column=0, columnspan=6, sticky="w", pady=(6, 0))
 
         buttons = ttk.Frame(root)
         buttons.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(8, 8))
@@ -177,6 +187,13 @@ class NpeAnalysisGui(tk.Tk):
         xmax = parse_float(self.xmax_var.get(), "Range X Max")
         clock = parse_float(self.clock_var.get(), "TTT Clock Hz")
         channels = [str(ch) for ch, var in enumerate(self.channel_vars) if var.get()]
+        thresholds = []
+        for ch, var in enumerate(self.threshold_vars):
+            value = var.get().strip()
+            if not value:
+                continue
+            threshold = parse_float(value, f"CH{ch} Min NPE")
+            thresholds.append(f"{ch}:{format_number(threshold)}")
 
         if gain <= 0:
             raise ValueError("Gain must be greater than 0.")
@@ -199,6 +216,7 @@ class NpeAnalysisGui(tk.Tk):
             "xmax": format_number(xmax),
             "clock": format_number(clock),
             "channels": ",".join(channels),
+            "thresholds": ",".join(thresholds),
         }
 
     def run_analysis(self):
@@ -224,6 +242,7 @@ class NpeAnalysisGui(tk.Tk):
             "-x", "0",
             "-X", "-1",
             "-C", options["channels"],
+            "-T", options["thresholds"],
             "-c", options["clock"],
         ]
 
@@ -239,6 +258,7 @@ class NpeAnalysisGui(tk.Tk):
             "-x", options["xmin"],
             "-X", options["xmax"],
             "-C", options["channels"],
+            "-T", options["thresholds"],
             "-c", options["clock"],
         ]
         bg_path = self.bg_var.get().strip()

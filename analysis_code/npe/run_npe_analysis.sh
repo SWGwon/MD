@@ -25,6 +25,7 @@ Options:
   -x MIN       Manual x-axis minimum (use with -X)
   -X MAX       Manual x-axis maximum (use with -x)
   -C LIST      Channels to analyze, comma-separated (example: 0,1,3). Default: auto-detect active channels
+  -T LIST      Event NPE thresholds, comma-separated CH:MIN pairs (example: 0:5,1:5)
   -c HZ        SyncTime_TTT clock Hz (default: 125.0e6)
   -h           Show this help
 
@@ -117,8 +118,9 @@ build_root_macro_call() {
     local adc_bits_value="${15}"
     local label="${16}"
     local channels="${17}"
+    local thresholds="${18}"
 
-    printf '%s(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)' \
+    printf '%s(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)' \
         "$macro" \
         "$(root_string_arg "$src")" \
         "$(root_string_arg "$bg")" \
@@ -135,7 +137,8 @@ build_root_macro_call() {
         "$resistance" \
         "$adc_bits_value" \
         "$(root_string_arg "$label")" \
-        "$(root_string_arg "$channels")"
+        "$(root_string_arg "$channels")" \
+        "$(root_string_arg "$thresholds")"
 }
 
 source_file=""
@@ -154,12 +157,13 @@ x_max="-1"
 ttt_clock="125.0e6"
 source_label=""
 channels=""
+thresholds=""
 dynamic_range_v="2.0"
 sampling_time_ns="2.0"
 resistance_ohm="50.0"
 adc_bits="14"
 
-while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:c:h" opt; do
+while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:T:c:h" opt; do
     case "$opt" in
         s) source_file="$OPTARG" ;;
         b) bg_file="$OPTARG"; bg_option_seen=1 ;;
@@ -174,6 +178,7 @@ while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:c:h" opt; do
         x) x_min="$OPTARG" ;;
         X) x_max="$OPTARG" ;;
         C) channels="$OPTARG" ;;
+        T) thresholds="$OPTARG" ;;
         c) ttt_clock="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) die "Option -$OPTARG requires an argument." ;;
@@ -247,6 +252,7 @@ echo "  X quantile: $x_quantile"
 echo "  Bins:       $n_bins"
 echo "  X range:    [$x_min, $x_max]"
 echo "  Channels:   ${channels:-auto-detect active}"
+echo "  Thresholds: ${thresholds:-none}"
 echo
 
 cd "$output_dir"
@@ -267,7 +273,8 @@ macro_call="$(build_root_macro_call \
     "$resistance_ohm" \
     "$adc_bits" \
     "$source_label" \
-    "$channels")"
+    "$channels" \
+    "$thresholds")"
 root -l -b -q "$macro_call"
 
 echo

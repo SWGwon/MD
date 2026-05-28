@@ -15,12 +15,17 @@
 #include <chrono>
 #include <sstream>
 
-double get_tree_quantile(TTree *tree, const TString &expr, double xmin, double xmax, double prob, const char *name) {
+struct ChannelThreshold {
+    int channel;
+    double minNpe;
+};
+
+double get_tree_quantile(TTree *tree, const TString &expr, double xmin, double xmax, double prob, const char *name, const TString &selection = "") {
     if (!tree || xmax <= xmin) return xmax;
 
     TString histName = Form("hQuant_%s", name);
     TString drawExpr = Form("%s>>%s(5000,%g,%g)", expr.Data(), histName.Data(), xmin, xmax);
-    tree->Draw(drawExpr, "", "goff");
+    tree->Draw(drawExpr, selection, "goff");
     TH1D *hist = (TH1D*)gDirectory->Get(histName);
     if (!hist || hist->GetEntries() == 0) return xmax;
 
@@ -105,6 +110,58 @@ std::vector<int> parse_channel_list(const char *channels, int nChannels) {
     return selected;
 }
 
+std::vector<ChannelThreshold> parse_threshold_list(const char *thresholds, int nChannels) {
+    std::vector<ChannelThreshold> parsed;
+    TString text(thresholds ? thresholds : "");
+    text.ReplaceAll(" ", "");
+    if (text.Length() == 0) return parsed;
+
+    std::stringstream stream(text.Data());
+    std::string token;
+    while (std::getline(stream, token, ',')) {
+        if (token.empty()) continue;
+        const size_t colon = token.find(':');
+        if (colon == std::string::npos) {
+            std::cerr << "Warning: ignoring invalid threshold token '" << token << "'" << std::endl;
+            continue;
+        }
+
+        std::string channelToken = token.substr(0, colon);
+        std::string thresholdToken = token.substr(colon + 1);
+        if (channelToken.rfind("CH", 0) == 0 || channelToken.rfind("ch", 0) == 0) channelToken = channelToken.substr(2);
+
+        char *channelEnd = nullptr;
+        const long channel = std::strtol(channelToken.c_str(), &channelEnd, 10);
+        char *thresholdEnd = nullptr;
+        const double minNpe = std::strtod(thresholdToken.c_str(), &thresholdEnd);
+        if (!channelEnd || *channelEnd != '\0' || channel < 0 || channel >= nChannels ||
+            !thresholdEnd || *thresholdEnd != '\0' || !std::isfinite(minNpe)) {
+            std::cerr << "Warning: ignoring invalid threshold token '" << token << "'" << std::endl;
+            continue;
+        }
+
+        auto existing = std::find_if(parsed.begin(), parsed.end(), [channel](const ChannelThreshold &threshold) {
+            return threshold.channel == channel;
+        });
+        if (existing == parsed.end()) {
+            parsed.push_back({static_cast<int>(channel), minNpe});
+        } else {
+            existing->minNpe = minNpe;
+        }
+    }
+    return parsed;
+}
+
+TString build_threshold_selection(const std::vector<ChannelThreshold> &thresholds, double adcIntegralToNPE) {
+    TString selection;
+    for (size_t idx = 0; idx < thresholds.size(); ++idx) {
+        if (idx > 0) selection += " && ";
+        const ChannelThreshold &threshold = thresholds[idx];
+        selection += Form("(Charge_CH%d * %.12g >= %.12g)", threshold.channel, adcIntegralToNPE, threshold.minNpe);
+    }
+    return selection;
+}
+
 /**
  * @brief 소스 데이터에서 백그라운드를 차감한 NPE 분포를 그리는 매크로
  * 
@@ -124,6 +181,7 @@ std::vector<int> parse_channel_list(const char *channels, int nChannels) {
  * @param adcBits      ADC bit depth
  * @param sourceLabel  Legend label for source data. Empty string derives it from sourceFile.
  * @param selectedChannels Comma-separated channel list such as "0,1,3". Empty string auto-detects active channels.
+ * @param channelThresholds Comma-separated NPE cuts such as "0:5,1:5". All cuts must pass for an event.
  */
 void plot_npe_subtracted(const char* sourceFile = "source.root",
                          const char* bgFile = "background_1hr_prod.root", 
@@ -140,7 +198,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
                          double resistanceOhm = 50.0,
                          int adcBits = 14,
                          const char* sourceLabel = "",
-                         const char* selectedChannels = "") {
+                         const char* selectedChannels = "",
+                         const char* channelThresholds = "") {
     const auto startTime = std::chrono::steady_clock::now();
     gStyle->SetOptStat(0); // 차감 후에는 통계 박스가 부정확할 수 있어 끔
     TString prefix(outPrefix);
@@ -188,6 +247,16 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         }
     }
     if (nBins <= 0) nBins = 400;
+
+    const std::vector<ChannelThreshold> thresholds = parse_threshold_list(channelThresholds, nChannels);
+    for (const ChannelThreshold &threshold : thresholds) {
+        TString branch = Form("Charge_CH%d", threshold.channel);
+        if (!tSrc->GetBranch(branch) || (hasBackground && !tBG->GetBranch(branch))) {
+            std::cerr << "Error: threshold branch " << branch << " not found in required input files." << std::endl;
+            return;
+        }
+    }
+    const TString eventSelection = build_threshold_selection(thresholds, adcIntegralToNPE);
 
     std::vector<int> requestedChannels = parse_channel_list(selectedChannels, nChannels);
     std::vector<int> activeChannels;
@@ -252,8 +321,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         double xmax = std::max(srcMax, bgMax);
         if (xmin == xmax) xmax = xmin + 1.0;
         if (xQuantile > 0 && xQuantile < 1) {
-            const double srcQ = get_tree_quantile(tSrc, npeExpr, xmin, xmax, xQuantile, Form("src_ch%d", i));
-            const double bgQ = hasBackground ? get_tree_quantile(tBG, npeExpr, xmin, xmax, xQuantile, Form("bg_ch%d", i)) : srcQ;
+            const double srcQ = get_tree_quantile(tSrc, npeExpr, xmin, xmax, xQuantile, Form("src_ch%d", i), eventSelection);
+            const double bgQ = hasBackground ? get_tree_quantile(tBG, npeExpr, xmin, xmax, xQuantile, Form("bg_ch%d", i), eventSelection) : srcQ;
             xmax = std::max(srcQ, bgQ);
             if (xmax <= xmin) xmax = std::max(srcMax, bgMax);
         }
@@ -266,9 +335,9 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
         TH1D *hSrc = new TH1D(Form("hSrc_ch%d", i), "", nBins, xmin, xmax);
         TH1D *hBG = hasBackground ? new TH1D(Form("hBG_ch%d", i), "", nBins, xmin, xmax) : nullptr;
         
-        tSrc->Project(hSrc->GetName(), npeExpr);
+        tSrc->Project(hSrc->GetName(), npeExpr, eventSelection);
         if (hasBackground) {
-            tBG->Project(hBG->GetName(), npeExpr);
+            tBG->Project(hBG->GetName(), npeExpr, eventSelection);
             hBG->Scale(bgScale);
             style_source_bg(hSrc, hBG);
         } else {
@@ -339,8 +408,8 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     double t_xmax = std::max(totalRawSrcMax, totalRawBgMax) * adcIntegralToNPE;
     if (t_xmin == t_xmax) t_xmax = t_xmin + 1.0;
     if (xQuantile > 0 && xQuantile < 1) {
-        const double srcQ = get_tree_quantile(tSrc, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_src");
-        const double bgQ = hasBackground ? get_tree_quantile(tBG, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_bg") : srcQ;
+        const double srcQ = get_tree_quantile(tSrc, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_src", eventSelection);
+        const double bgQ = hasBackground ? get_tree_quantile(tBG, total_npe_expr, t_xmin, t_xmax, xQuantile, "total_bg", eventSelection) : srcQ;
         t_xmax = std::max(srcQ, bgQ);
         if (t_xmax <= t_xmin) t_xmax = std::max(totalRawSrcMax, totalRawBgMax) * adcIntegralToNPE;
     }
@@ -352,9 +421,9 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     TH1D *hTotalSrc = new TH1D("hTotalSrc", "Total NPE;NPE;Counts", nBins, t_xmin, t_xmax);
     TH1D *hTotalBG = hasBackground ? new TH1D("hTotalBG", "", nBins, t_xmin, t_xmax) : nullptr;
     
-    tSrc->Project("hTotalSrc", total_npe_expr);
+    tSrc->Project("hTotalSrc", total_npe_expr, eventSelection);
     if (hasBackground) {
-        tBG->Project("hTotalBG", total_npe_expr);
+        tBG->Project("hTotalBG", total_npe_expr, eventSelection);
         hTotalBG->Scale(bgScale);
         style_source_bg(hTotalSrc, hTotalBG);
     } else {
@@ -480,6 +549,14 @@ void plot_npe_subtracted(const char* sourceFile = "source.root",
     for (int ch : activeChannels) std::cout << " CH" << ch;
     std::cout << std::endl;
     if (useRequestedChannels) std::cout << "Channel selection: " << selectedChannels << std::endl;
+    if (!thresholds.empty()) {
+        std::cout << "Event NPE thresholds:";
+        for (const ChannelThreshold &threshold : thresholds) {
+            std::cout << " CH" << threshold.channel << ">=" << threshold.minNpe;
+        }
+        std::cout << std::endl;
+        std::cout << "ROOT event selection: " << eventSelection << std::endl;
+    }
     if (hasBackground) std::cout << "BG scale: " << bgScale << std::endl;
     std::cout << "X-axis quantile: " << xQuantile << std::endl;
     std::cout << "Bins: " << nBins << ", X range: [" << t_xmin << ", " << t_xmax << "]" << std::endl;
