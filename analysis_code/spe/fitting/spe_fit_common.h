@@ -27,17 +27,18 @@ inline TString spe_charge_expr(TTree *tree,
                                double dynamicRangeV = 2.0,
                                double samplingTimeNs = 2.0,
                                double resistanceOhm = 50.0,
-                               int adcBits = 14) {
+                               int adcBits = 14,
+                               double chargeOffsetPC = 0.0) {
     if (!tree) return "";
 
     TString newBranch = Form("Charge_CH%d", ch);
     if (tree->GetBranch(newBranch)) {
         const double toPC = spe_adc_integral_to_pC(dynamicRangeV, samplingTimeNs, resistanceOhm, adcBits);
-        return Form("(%s * %.17g)", newBranch.Data(), toPC);
+        return Form("(%s * %.17g - %.17g)", newBranch.Data(), toPC, chargeOffsetPC);
     }
 
     if (tree->GetBranch("charge_pC")) {
-        return Form("charge_pC[%d]", ch);
+        return Form("(charge_pC[%d] - %.17g)", ch, chargeOffsetPC);
     }
 
     return "";
@@ -53,7 +54,8 @@ inline TH1D *spe_make_charge_hist(const char *fileName,
                                   double dynamicRangeV = 2.0,
                                   double samplingTimeNs = 2.0,
                                   double resistanceOhm = 50.0,
-                                  int adcBits = 14) {
+                                  int adcBits = 14,
+                                  double chargeOffsetPC = 0.0) {
     TFile *file = TFile::Open(fileName);
     if (!file || file->IsZombie()) {
         std::cerr << "Cannot open " << fileName << std::endl;
@@ -69,7 +71,7 @@ inline TH1D *spe_make_charge_hist(const char *fileName,
         return nullptr;
     }
 
-    TString expr = spe_charge_expr(tree, ch, dynamicRangeV, samplingTimeNs, resistanceOhm, adcBits);
+    TString expr = spe_charge_expr(tree, ch, dynamicRangeV, samplingTimeNs, resistanceOhm, adcBits, chargeOffsetPC);
     if (expr.IsNull()) {
         std::cerr << "Cannot find Charge_CH" << ch << " or charge_pC[" << ch << "] in " << fileName << std::endl;
         file->Close();

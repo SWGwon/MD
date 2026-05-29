@@ -10,6 +10,7 @@ data/
 results/
 plots/
 output/
+analysis_code/spe/fitting/set2_spe_results/
 
 # ROOT build artifacts
 *_C.d
