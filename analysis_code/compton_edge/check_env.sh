@@ -3,6 +3,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MACRO_FILE="$SCRIPT_DIR/plot_compton_edge.C"
+FIT_MACRO_FILE="$SCRIPT_DIR/fit_compton_edge.C"
+SCAN_WRAPPER_FILE="$SCRIPT_DIR/run_compton_edge_scan.sh"
+MODEL_COMPARE_WRAPPER_FILE="$SCRIPT_DIR/run_compton_edge_model_compare.sh"
 
 ok() {
     echo "[OK] $*"
@@ -56,6 +59,19 @@ root -l -b -q "$MACRO_FILE(\"/tmp/md_missing_source.root\",\"/tmp/md_missing_bg.
     fail "ROOT failed to load the Compton-edge macro."
 }
 ok "ROOT macro loads: $MACRO_FILE"
+
+[[ -f "$FIT_MACRO_FILE" ]] || fail "Compton-edge fit macro not found: $FIT_MACRO_FILE"
+root -l -b -q -e ".L $FIT_MACRO_FILE" >/tmp/md_compton_edge_fit_root_check.log 2>&1 || {
+    cat /tmp/md_compton_edge_fit_root_check.log >&2
+    fail "ROOT failed to load the Compton-edge fit macro."
+}
+ok "ROOT fit macro loads: $FIT_MACRO_FILE"
+
+[[ -x "$SCAN_WRAPPER_FILE" ]] || fail "Compton-edge scan wrapper not found or not executable: $SCAN_WRAPPER_FILE"
+ok "Compton-edge scan wrapper executable: $SCAN_WRAPPER_FILE"
+
+[[ -x "$MODEL_COMPARE_WRAPPER_FILE" ]] || fail "Compton-edge model-compare wrapper not found or not executable: $MODEL_COMPARE_WRAPPER_FILE"
+ok "Compton-edge model-compare wrapper executable: $MODEL_COMPARE_WRAPPER_FILE"
 
 echo
 echo "Environment check complete."
