@@ -20,6 +20,7 @@ Options:
   -L LABEL     Source label shown in plot legends (default: source file name)
   -m FILE      ROOT macro path (default: plot_compton_edge.C next to this script)
   -g GAIN      PMT gain (default: 1.0e7)
+  -B SCALE     Background scale factor. Negative value uses live-time scaling (default: -1)
   -q QUANTILE  X-axis quantile, 1.0 means full range (default: 1.0)
   -n BINS      Histogram bins (default: 400)
   -x MIN       Manual x-axis minimum (use with -X)
@@ -163,7 +164,7 @@ sampling_time_ns="2.0"
 resistance_ohm="50.0"
 adc_bits="14"
 
-while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:T:c:h" opt; do
+while getopts ":s:b:d:o:O:L:m:g:B:q:n:x:X:C:T:c:h" opt; do
     case "$opt" in
         s) source_file="$OPTARG" ;;
         b) bg_file="$OPTARG"; bg_option_seen=1 ;;
@@ -173,6 +174,7 @@ while getopts ":s:b:d:o:O:L:m:g:q:n:x:X:C:T:c:h" opt; do
         L) source_label="$OPTARG" ;;
         m) macro_file="$OPTARG" ;;
         g) gain="$OPTARG" ;;
+        B) bg_scale="$OPTARG" ;;
         q) x_quantile="$OPTARG" ;;
         n) n_bins="$OPTARG" ;;
         x) x_min="$OPTARG" ;;
@@ -248,6 +250,7 @@ echo "  Background: ${bg_file:-none}"
 echo "  Prefix:     $out_prefix"
 echo "  Label:      ${source_label:-source file name}"
 echo "  Gain:       $gain"
+echo "  BG scale:   $bg_scale"
 echo "  X quantile: $x_quantile"
 echo "  Bins:       $n_bins"
 echo "  X range:    [$x_min, $x_max]"
@@ -276,6 +279,13 @@ macro_call="$(build_root_macro_call \
     "$channels" \
     "$thresholds")"
 root -l -b -q "$macro_call"
+
+if [[ "$out_prefix" = /* ]]; then
+    hist_output="${out_prefix}_histograms.root"
+else
+    hist_output="$output_dir/${out_prefix}_histograms.root"
+fi
+[[ -f "$hist_output" ]] || die "Compton edge macro did not create expected histogram file: $hist_output"
 
 echo
 echo "Key outputs:"

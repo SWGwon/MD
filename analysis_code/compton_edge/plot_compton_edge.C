@@ -85,7 +85,8 @@ TString source_label_from_file(const char *sourceFile) {
     return TString(label.c_str());
 }
 
-std::vector<int> parse_channel_list(const char *channels, int nChannels) {
+std::vector<int> parse_channel_list(const char *channels, int nChannels, bool *ok = nullptr) {
+    if (ok) *ok = true;
     std::vector<int> selected;
     TString text(channels ? channels : "");
     text.ReplaceAll(" ", "");
@@ -100,7 +101,8 @@ std::vector<int> parse_channel_list(const char *channels, int nChannels) {
         char *end = nullptr;
         const long channel = std::strtol(token.c_str(), &end, 10);
         if (!end || *end != '\0' || channel < 0 || channel >= nChannels) {
-            std::cerr << "Warning: ignoring invalid channel selection '" << token << "'" << std::endl;
+            std::cerr << "Error: invalid channel selection '" << token << "'" << std::endl;
+            if (ok) *ok = false;
             continue;
         }
         if (std::find(selected.begin(), selected.end(), static_cast<int>(channel)) == selected.end()) {
@@ -110,7 +112,8 @@ std::vector<int> parse_channel_list(const char *channels, int nChannels) {
     return selected;
 }
 
-std::vector<ChannelThreshold> parse_threshold_list(const char *thresholds, int nChannels) {
+std::vector<ChannelThreshold> parse_threshold_list(const char *thresholds, int nChannels, bool *ok = nullptr) {
+    if (ok) *ok = true;
     std::vector<ChannelThreshold> parsed;
     TString text(thresholds ? thresholds : "");
     text.ReplaceAll(" ", "");
@@ -122,7 +125,8 @@ std::vector<ChannelThreshold> parse_threshold_list(const char *thresholds, int n
         if (token.empty()) continue;
         const size_t colon = token.find(':');
         if (colon == std::string::npos) {
-            std::cerr << "Warning: ignoring invalid threshold token '" << token << "'" << std::endl;
+            std::cerr << "Error: invalid threshold token '" << token << "'" << std::endl;
+            if (ok) *ok = false;
             continue;
         }
 
@@ -136,7 +140,8 @@ std::vector<ChannelThreshold> parse_threshold_list(const char *thresholds, int n
         const double minNpe = std::strtod(thresholdToken.c_str(), &thresholdEnd);
         if (!channelEnd || *channelEnd != '\0' || channel < 0 || channel >= nChannels ||
             !thresholdEnd || *thresholdEnd != '\0' || !std::isfinite(minNpe)) {
-            std::cerr << "Warning: ignoring invalid threshold token '" << token << "'" << std::endl;
+            std::cerr << "Error: invalid threshold token '" << token << "'" << std::endl;
+            if (ok) *ok = false;
             continue;
         }
 
@@ -243,12 +248,21 @@ void plot_compton_edge(const char* sourceFile = "source.root",
         if (srcLiveSeconds > 0 && bgLiveSeconds > 0) {
             bgScale = srcLiveSeconds / bgLiveSeconds;
         } else {
-            bgScale = static_cast<double>(tSrc->GetEntries()) / static_cast<double>(tBG->GetEntries());
+            std::cerr << "Error: automatic background scaling requires valid SyncTime_TTT live time in both files." << std::endl;
+            std::cerr << "       Pass an explicit bgScale to plot_compton_edge if live-time scaling is not applicable." << std::endl;
+            return;
         }
     }
     if (nBins <= 0) nBins = 400;
 
-    const std::vector<ChannelThreshold> thresholds = parse_threshold_list(channelThresholds, nChannels);
+    TString thresholdText(channelThresholds ? channelThresholds : "");
+    thresholdText.ReplaceAll(" ", "");
+    bool thresholdsOk = true;
+    const std::vector<ChannelThreshold> thresholds = parse_threshold_list(channelThresholds, nChannels, &thresholdsOk);
+    if (!thresholdsOk || (thresholdText.Length() > 0 && thresholds.empty())) {
+        std::cerr << "Error: invalid threshold selection. Expected comma-separated CH:MIN pairs, e.g. 0:5,1:5." << std::endl;
+        return;
+    }
     for (const ChannelThreshold &threshold : thresholds) {
         TString branch = Form("Charge_CH%d", threshold.channel);
         if (!tSrc->GetBranch(branch) || (hasBackground && !tBG->GetBranch(branch))) {
@@ -258,9 +272,17 @@ void plot_compton_edge(const char* sourceFile = "source.root",
     }
     const TString eventSelection = build_threshold_selection(thresholds, adcIntegralToNPE);
 
-    std::vector<int> requestedChannels = parse_channel_list(selectedChannels, nChannels);
+    TString selectedText(selectedChannels ? selectedChannels : "");
+    selectedText.ReplaceAll(" ", "");
+    bool channelsOk = true;
+    std::vector<int> requestedChannels = parse_channel_list(selectedChannels, nChannels, &channelsOk);
+    if (!channelsOk || (selectedText.Length() > 0 && requestedChannels.empty())) {
+        std::cerr << "Error: invalid channel selection. Expected comma-separated channels in [0, "
+                  << (nChannels - 1) << "], e.g. 0,1,3." << std::endl;
+        return;
+    }
     std::vector<int> activeChannels;
-    const bool useRequestedChannels = !requestedChannels.empty();
+    const bool useRequestedChannels = selectedText.Length() > 0;
     const std::vector<int> channelsToCheck = useRequestedChannels ? requestedChannels : [&]() {
         std::vector<int> channels;
         for (int i = 0; i < nChannels; ++i) channels.push_back(i);
@@ -467,31 +489,36 @@ void plot_compton_edge(const char* sourceFile = "source.root",
     legOverlayLog->Draw();
     c_total_overlay_log->SaveAs(Form("%s_overlay_total_log.png", prefix.Data()));
 
-    TH1D *hTotalSrcRate = make_rate_hist(hTotalSrc, srcLiveSeconds, "hTotalSrcRate");
-    TH1D *hTotalBGRate = hasBackground ? make_rate_hist(hTotalBG, srcLiveSeconds, "hTotalBGRate") : nullptr;
-    if (hasBackground) {
-        style_source_bg(hTotalSrcRate, hTotalBGRate);
-    } else {
-        hTotalSrcRate->SetLineColor(kBlue + 1);
-        hTotalSrcRate->SetLineWidth(2);
-    }
-    histogramsToWrite.push_back(hTotalSrcRate);
-    if (hTotalBGRate) histogramsToWrite.push_back(hTotalBGRate);
+    const bool canMakeRatePlot = srcLiveSeconds > 0 && (!hasBackground || bgLiveSeconds > 0);
+    if (canMakeRatePlot) {
+        TH1D *hTotalSrcRate = make_rate_hist(hTotalSrc, srcLiveSeconds, "hTotalSrcRate");
+        TH1D *hTotalBGRate = hasBackground ? make_rate_hist(hTotalBG, srcLiveSeconds, "hTotalBGRate") : nullptr;
+        if (hasBackground) {
+            style_source_bg(hTotalSrcRate, hTotalBGRate);
+        } else {
+            hTotalSrcRate->SetLineColor(kBlue + 1);
+            hTotalSrcRate->SetLineWidth(2);
+        }
+        histogramsToWrite.push_back(hTotalSrcRate);
+        if (hTotalBGRate) histogramsToWrite.push_back(hTotalBGRate);
 
-    TCanvas *c_total_rate_log = new TCanvas("c_total_rate_log", hasBackground ? "Total NPE Rate-Normalized Source vs Background" : "Total NPE Rate-Normalized Source", 900, 650);
-    c_total_rate_log->cd();
-    gPad->SetLogy();
-    hTotalSrcRate->SetTitle(hasBackground ? Form("Total NPE rate density: Source vs scaled BG (Gain=%.1e);NPE;Rate [Hz / NPE]", gain)
-                                          : Form("Total NPE rate density: Source (Gain=%.1e);NPE;Rate [Hz / NPE]", gain));
-    hTotalSrcRate->SetMinimum(1e-5);
-    hTotalSrcRate->SetMaximum((hasBackground ? std::max(hTotalSrcRate->GetMaximum(), hTotalBGRate->GetMaximum()) : hTotalSrcRate->GetMaximum()) * 2.0);
-    hTotalSrcRate->Draw("HIST");
-    if (hasBackground) hTotalBGRate->Draw("SAME HIST");
-    TLegend *legRate = new TLegend(0.54, 0.72, 0.88, 0.88);
-    legRate->AddEntry(hTotalSrcRate, Form("%s %.1f Hz", srcLabel.Data(), srcRate), "l");
-    if (hasBackground) legRate->AddEntry(hTotalBGRate, Form("BG scaled to source live time %.1f Hz", bgRate), "l");
-    legRate->Draw();
-    c_total_rate_log->SaveAs(Form("%s_overlay_total_rate_log.png", prefix.Data()));
+        TCanvas *c_total_rate_log = new TCanvas("c_total_rate_log", hasBackground ? "Total NPE Rate-Normalized Source vs Background" : "Total NPE Rate-Normalized Source", 900, 650);
+        c_total_rate_log->cd();
+        gPad->SetLogy();
+        hTotalSrcRate->SetTitle(hasBackground ? Form("Total NPE rate density: Source vs scaled BG (Gain=%.1e);NPE;Rate [Hz / NPE]", gain)
+                                              : Form("Total NPE rate density: Source (Gain=%.1e);NPE;Rate [Hz / NPE]", gain));
+        hTotalSrcRate->SetMinimum(1e-5);
+        hTotalSrcRate->SetMaximum((hasBackground ? std::max(hTotalSrcRate->GetMaximum(), hTotalBGRate->GetMaximum()) : hTotalSrcRate->GetMaximum()) * 2.0);
+        hTotalSrcRate->Draw("HIST");
+        if (hasBackground) hTotalBGRate->Draw("SAME HIST");
+        TLegend *legRate = new TLegend(0.54, 0.72, 0.88, 0.88);
+        legRate->AddEntry(hTotalSrcRate, Form("%s %.1f Hz", srcLabel.Data(), srcRate), "l");
+        if (hasBackground) legRate->AddEntry(hTotalBGRate, Form("BG scaled to source live time %.1f Hz", bgRate), "l");
+        legRate->Draw();
+        c_total_rate_log->SaveAs(Form("%s_overlay_total_rate_log.png", prefix.Data()));
+    } else {
+        std::cerr << "Warning: skipping rate-normalized overlay because SyncTime_TTT live time is unavailable." << std::endl;
+    }
 
     c_total_sub->cd();
     const double totalYMin = std::min(0.0, hTotalSub->GetMinimum());
@@ -569,7 +596,8 @@ void plot_compton_edge(const char* sourceFile = "source.root",
               << prefix << "_subtracted_total.png" << std::endl;
     std::cout << "Overlay plots saved to: " << prefix << "_overlay_channels_log.png, "
               << prefix << "_overlay_total_linear.png, "
-              << prefix << "_overlay_total_log.png, "
-              << prefix << "_overlay_total_rate_log.png" << std::endl;
+              << prefix << "_overlay_total_log.png";
+    if (canMakeRatePlot) std::cout << ", " << prefix << "_overlay_total_rate_log.png";
+    std::cout << std::endl;
     std::cout << "Histograms saved to: " << histOutName << std::endl;
 }
