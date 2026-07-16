@@ -43,7 +43,7 @@ class ComptonEdgeAnalysisGui(tk.Tk):
         self.clock_var = tk.StringVar(value="125.0e6")
         self.fit_xmin_var = tk.StringVar()
         self.fit_xmax_var = tk.StringVar()
-        self.fit_model_var = tk.StringVar(value="erfc_linear")
+        self.fit_model_var = tk.StringVar(value="recommended")
         self.fit_result_var = tk.StringVar(value="No fit has been run.")
         self.channel_vars = [tk.BooleanVar(value=True) for _ in range(8)]
         self.threshold_vars = [tk.StringVar() for _ in range(8)]
@@ -121,8 +121,8 @@ class ComptonEdgeAnalysisGui(tk.Tk):
         ttk.Combobox(
             fit_options,
             textvariable=self.fit_model_var,
-            values=["erfc_linear", "erfc_gaussian"],
-            width=14,
+            values=["recommended", "erfc_linear", "erfc_gaussian", "edge_response", "derivative_response", "compton_response"],
+            width=18,
             state="readonly",
         ).grid(row=0, column=5, sticky="w", padx=(0, 12), pady=4)
         ttk.Label(fit_options, textvariable=self.fit_result_var).grid(row=0, column=6, columnspan=2, sticky="w", padx=(8, 0))
@@ -384,6 +384,9 @@ class ComptonEdgeAnalysisGui(tk.Tk):
             "-o", str(fit_prefix),
             "-M", self.fit_model_var.get(),
         ]
+        source_name = self.source_label_var.get().strip()
+        if source_name:
+            cmd.extend(["-S", source_name])
 
         self.fit_result_path = Path(f"{fit_prefix}_compton_edge_fit.png")
         self.append_log("$ " + " ".join(cmd) + "\n\n")
@@ -415,6 +418,9 @@ class ComptonEdgeAnalysisGui(tk.Tk):
             "-o", str(fit_prefix),
             "-M", self.fit_model_var.get(),
         ]
+        source_name = self.source_label_var.get().strip()
+        if source_name:
+            cmd.extend(["-S", source_name])
 
         self.scan_result_path = Path(f"{fit_prefix}_compton_edge_scan.png")
         self.append_log("$ " + " ".join(cmd) + "\n\n")

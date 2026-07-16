@@ -16,7 +16,8 @@ Options:
   -o PREFIX    Output prefix for scan plot, ROOT file, and text summary
   -m FILE      ROOT macro path (default: fit_compton_edge.C next to this script)
   -H NAME      Histogram name (default: hTotalSub, falling back to hTotalSourceOnly)
-  -M MODEL     Fit model: erfc_linear or erfc_gaussian (default: erfc_linear)
+  -M MODEL     Fit model: recommended, erfc_linear, erfc_gaussian, edge_response, derivative_response, or compton_response (default: erfc_linear)
+  -S SOURCE    Gamma source for edge_response/derivative_response/compton_response: Cs137, Co60, Na22, or Mn54
   -F FRACTION  Fraction of fit width used to shift xmin/xmax (default: 0.10)
   -h           Show this help
 EOF
@@ -55,8 +56,9 @@ macro_file="$SCRIPT_DIR/fit_compton_edge.C"
 hist_name=""
 model="erfc_linear"
 scan_fraction="0.10"
+source_name=""
 
-while getopts ":i:x:X:o:m:H:M:F:h" opt; do
+while getopts ":i:x:X:o:m:H:M:S:F:h" opt; do
     case "$opt" in
         i) hist_file="$OPTARG" ;;
         x) fit_xmin="$OPTARG" ;;
@@ -65,6 +67,7 @@ while getopts ":i:x:X:o:m:H:M:F:h" opt; do
         m) macro_file="$OPTARG" ;;
         H) hist_name="$OPTARG" ;;
         M) model="$OPTARG" ;;
+        S) source_name="$OPTARG" ;;
         F) scan_fraction="$OPTARG" ;;
         h) usage; exit 0 ;;
         :) die "Option -$OPTARG requires an argument." ;;
@@ -90,17 +93,22 @@ echo "  Macro:         $macro_file"
 echo "  Hist file:     $hist_file"
 echo "  Hist name:     ${hist_name:-auto}"
 echo "  Model:         $model"
+echo "  Source:        ${source_name:-auto}"
 echo "  Base fit range: [$fit_xmin, $fit_xmax]"
 echo "  Scan fraction: $scan_fraction"
 echo "  Prefix:        $out_prefix"
 echo
 
-root_call="$(printf 'scan_compton_edge_fit(%s,%s,%s,%s,%s,%s,%s)' \
+root_call="$(printf 'scan_compton_edge_fit(%s,%s,%s,%s,%s,%s,%s,%s)' \
     "$(root_string_arg "$hist_file")" \
     "$fit_xmin" \
     "$fit_xmax" \
     "$(root_string_arg "$out_prefix")" \
     "$(root_string_arg "$hist_name")" \
     "$(root_string_arg "$model")" \
-    "$scan_fraction")"
+    "$scan_fraction" \
+    "$(root_string_arg "$source_name")")"
 root -l -b -q -e ".L $(root_string_escape "$macro_file")" -e "$root_call"
+
+summary_output="${out_prefix}_compton_edge_scan.txt"
+[[ -f "$summary_output" ]] || die "Compton edge scan macro did not create expected summary file: $summary_output"

@@ -7,7 +7,7 @@ This directory contains the Cs137 source/background Compton-edge workflow built 
 ```text
 plot_compton_edge.C   ROOT macro that builds source/BG overlays and subtraction plots
 run_compton_edge_analysis.sh     Command-line wrapper around the ROOT macro
-run_compton_edge_fit.sh          Compton-edge erfc fit wrapper for generated histograms
+run_compton_edge_fit.sh          Compton-edge fit wrapper for generated histograms
 run_compton_edge_scan.sh         Fit range stability scan wrapper
 run_compton_edge_model_compare.sh
                                   Compares erfc_linear and erfc_gaussian fit results
@@ -90,11 +90,24 @@ Useful options:
 
 ## Compton Edge Fit
 
-After creating `<prefix>_histograms.root`, fit the total background-subtracted histogram with a linear background plus smeared edge:
+After creating `<prefix>_histograms.root`, fit the total background-subtracted histogram. For the current optical-test spectra, use `recommended`, which maps to the best-performing checked model, `erfc_gaussian`:
+
+```bash
+analysis_code/compton_edge/run_compton_edge_fit.sh \
+  -i /path/to/results/source_zoom_histograms.root \
+  -x 40 -X 180 \
+  -o /path/to/results/source_zoom \
+  -M recommended \
+  -S Cs137
+```
+
+The base edge model is:
 
 ```text
 f(x) = offset + slope*x + 0.5*amplitude*erfc((x - edge)/(sqrt(2)*sigma))
 ```
+
+`erfc_gaussian` adds one nuisance Gaussian to absorb smooth local continuum mismatch in the original spectrum. Treat that Gaussian as an empirical background-shape term, not as a source line. Quote the edge only after checking the pull panel and range scan.
 
 Command-line example:
 
@@ -103,19 +116,27 @@ analysis_code/compton_edge/run_compton_edge_fit.sh \
   -i /path/to/results/source_zoom_histograms.root \
   -x 3000 -X 6000 \
   -o /path/to/results/source_zoom \
-  -M erfc_linear
+  -M recommended
 ```
 
 Available models:
 
 ```text
-erfc_linear     linear background + smeared falling edge
-erfc_gaussian   erfc_linear plus one Gaussian component for local bump/peak structure
+recommended          current production choice; alias for erfc_gaussian
+erfc_linear          linear background + smeared falling edge in the original histogram
+erfc_gaussian        erfc_linear plus one Gaussian component for local bump/peak structure
+edge_response        experimental gamma-line-tied erfc edge response with smooth continuum
+derivative_response  experimental smoothed-derivative edge estimator
+compton_response     experimental direct Klein-Nishina convolution in the original histogram
 ```
+
+Use `-S Cs137`, `-S Co60`, `-S Na22`, or `-S Mn54` with the source-aware experimental models. If `-S` is omitted, the macro tries to infer the source from the histogram file or output prefix.
 
 The fit plot includes a lower pull panel showing `(data - fit) / error` across the selected fit range. This makes it easier to see where the model misses the spectrum even when the overlay looks acceptable.
 
 For `erfc_gaussian`, the fit plot also draws the `linear + erfc` component, the Gaussian contribution, and the Gaussian mean marker separately. Use these component curves to check whether the Gaussian term is modeling a physically intended peak or merely absorbing continuum-shape residuals.
+
+Treat `edge_response`, `derivative_response`, and `compton_response` as diagnostics unless their pull panels and cross-source `NPE/keV` consistency beat `recommended` on the same data. The current without-optical Co60/Cs137 checks do not satisfy that condition.
 
 The fit writes:
 
@@ -133,7 +154,8 @@ analysis_code/compton_edge/run_compton_edge_scan.sh \
   -i /path/to/results/source_zoom_histograms.root \
   -x 3000 -X 6000 \
   -o /path/to/results/source_zoom \
-  -M erfc_linear \
+  -M recommended \
+  -S Cs137 \
   -F 0.10
 ```
 
@@ -148,7 +170,7 @@ The scan writes:
 
 Use `edge_rms` from the scan summary as a first estimate of the systematic uncertainty from fit-range choice. It is not a replacement for model comparison, but it quickly shows whether the selected range is stable enough to trust.
 
-To check model dependence, compare the two available fit models on the same histogram and range:
+To check empirical erfc-model dependence, compare `erfc_linear` and `erfc_gaussian` on the same histogram and range:
 
 ```bash
 analysis_code/compton_edge/run_compton_edge_model_compare.sh \
